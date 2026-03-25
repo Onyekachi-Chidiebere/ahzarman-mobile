@@ -1,0 +1,21 @@
+export const C = {
+  primary: '#A3B708',
+  primXlt: '#EDF1CE',
+  primFaint: '#F9FAEF',
+  olive: '#919E2D',
+  ink: '#020202',
+  textColor: '#1A1A1A',
+  muted: '#747474',
+  placeholder: '#C7C7C7',
+  border: '#F0F0F0',
+  borderMd: '#C0C4B8',
+  white: '#FFFFFF',
+  surface: '#F9FAEF',
+  disabled: '#F5F5F5',
+  disabledTxt: '#B0B0B0',
+  error: '#C0392B',
+  success: '#1E8449',
+  successBg: '#EAFAF1',
+  successBorder: '#A9DFBF',
+};
+
