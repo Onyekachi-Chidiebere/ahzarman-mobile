@@ -1,5 +1,6 @@
 export const C = {
   primary: '#A3B708',
+  primLt: '#D9EF82',
   primXlt: '#EDF1CE',
   primFaint: '#F9FAEF',
   olive: '#919E2D',
@@ -14,6 +15,10 @@ export const C = {
   disabled: '#F5F5F5',
   disabledTxt: '#B0B0B0',
   error: '#C0392B',
+  errorBg: '#FDF0EF',
+  errorBorder: '#E8A09A',
+  body: '#323433',
+  oliveD: '#B1C138',
   success: '#1E8449',
   successBg: '#EAFAF1',
   successBorder: '#A9DFBF',

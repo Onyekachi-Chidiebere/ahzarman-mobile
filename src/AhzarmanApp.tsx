@@ -103,7 +103,7 @@ export function AhzarmanApp() {
       {screen === 'share_points' ? <SharePointsScreen goTo={goTo} /> : null}
       {screen === 'redeem_points' ? <RedeemPointsScreen goTo={goTo} /> : null}
       {screen === 'refer' ? <ReferScreen goTo={goTo} /> : null}
-      {screen === 'electricity' ? <ElectricityScreen goTo={goTo} /> : null}
+      {screen === 'electricity' ? <ElectricityScreen goTo={goTo} onAddTx={onAddTx} /> : null}
       {screen === 'elec_success' ? <ElecSuccessScreen goTo={goTo} /> : null}
       {screen === 'airtime' ? (
         <AirtimeScreen
@@ -123,11 +123,21 @@ export function AhzarmanApp() {
           onPurchaseComplete={finishPurchase}
         />
       ) : null}
-      {screen === 'tv' ? <TVScreen goTo={goTo} /> : null}
-      {screen === 'giftcards' ? <GiftCardsScreen goTo={goTo} /> : null}
-      {screen === 'flights' ? <FlightsScreen goTo={goTo} /> : null}
-      {screen === 'betting' ? <BettingScreen goTo={goTo} /> : null}
-      {screen === 'esim' ? <ESIMScreen goTo={goTo} /> : null}
+      {screen === 'tv' ? (
+        <TVScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+      ) : null}
+      {screen === 'giftcards' ? (
+        <GiftCardsScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+      ) : null}
+      {screen === 'flights' ? (
+        <FlightsScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+      ) : null}
+      {screen === 'betting' ? (
+        <BettingScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+      ) : null}
+      {screen === 'esim' ? (
+        <ESIMScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+      ) : null}
       {screen === 'success_simple' ? <SuccessSimpleScreen goTo={goTo} pts={successPts} /> : null}
       {screen === 'contact_us' ? <ContactUsScreen goTo={goTo} /> : null}
       {screen === 'payment_settings' ? <PaymentSettingsScreen goTo={goTo} /> : null}
