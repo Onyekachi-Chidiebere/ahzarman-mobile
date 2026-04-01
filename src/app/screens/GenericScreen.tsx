@@ -34,6 +34,7 @@ export function getPlaceholderTitle(screen: AppScreen): string {
     personal_info: 'Personal Info',
     security: 'Security',
     terms: 'Terms',
+    estate_account: 'Estate',
   };
   return labels[screen];
 }

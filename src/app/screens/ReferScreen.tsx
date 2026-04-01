@@ -16,7 +16,13 @@ const FRIENDS = [
 const WA_MSG =
   'Join Ahzarman and earn points on every bill payment! Sign up with my referral link: https://ahzarman.app/ref/MERCY2025';
 
-export function ReferScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+export function ReferScreen({
+  goTo,
+  goBack,
+}: {
+  goTo: (s: AppScreen) => void;
+  goBack: () => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
@@ -32,7 +38,7 @@ export function ReferScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
 
   return (
     <View style={styles.page}>
-      <ScreenHeader title="Refer & Earn" onBack={() => goTo('home')} />
+      <ScreenHeader title="Refer & Earn" onBack={goBack} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
           <Text style={styles.heroBig}>₦2,500 pts</Text>

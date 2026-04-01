@@ -12,6 +12,7 @@ import {
   ElectricityScreen,
   ElecSuccessScreen,
   ESIMScreen,
+  EstateAccountScreen,
   FlightsScreen,
   GiftCardsScreen,
   GenericScreen,
@@ -34,7 +35,7 @@ import {
   TVScreen,
   TermsScreen,
 } from './app/screens/index';
-import type { AppScreen, Beneficiary, DataState, Tx } from './app/types';
+import type { AppScreen, Beneficiary, DataState, Estate, Tx } from './app/types';
 
 export function AhzarmanApp() {
   const [screen, setScreen] = useState<AppScreen>('onboarding');
@@ -51,8 +52,16 @@ export function AhzarmanApp() {
     phone: '',
   });
   const [successPts, setSuccessPts] = useState(30);
+  const [userEstate, setUserEstate] = useState<Estate | null>(null);
+  const [estatePoints, setEstatePoints] = useState(0);
 
-  const onAddTx = (tx: Tx) => setTransactions(prev => [tx, ...prev]);
+  const onAddTx = (tx: Tx) => {
+    setTransactions(prev => [tx, ...prev]);
+    if (userEstate && tx.pts) {
+      const n = parseInt((tx.pts || '').replace(/\D/g, ''), 10) || 0;
+      if (n > 0) setEstatePoints(p => p + Math.floor(n * 0.1));
+    }
+  };
   const showBottomNav = ['home', 'services', 'rewards', 'profile'].includes(screen);
 
   const goTo = (next: AppScreen) => {
@@ -90,10 +99,14 @@ export function AhzarmanApp() {
       {screen === 'sign_up' ? <SignUpScreen goTo={goTo} /> : null}
       {screen === 'sign_in' ? <SignInScreen goTo={goTo} /> : null}
 
-      {screen === 'home' ? <HomeScreen goTo={goTo} transactions={transactions} /> : null}
+      {screen === 'home' ? (
+        <HomeScreen goTo={goTo} transactions={transactions} userEstate={userEstate} />
+      ) : null}
       {screen === 'services' ? <ServicesScreen goTo={goTo} /> : null}
-      {screen === 'rewards' ? <RewardsScreen goTo={goTo} /> : null}
-      {screen === 'profile' ? <ProfileScreen goTo={goTo} /> : null}
+      {screen === 'rewards' ? (
+        <RewardsScreen goTo={goTo} userEstate={userEstate} estatePoints={estatePoints} />
+      ) : null}
+      {screen === 'profile' ? <ProfileScreen goTo={goTo} userEstate={userEstate} /> : null}
 
       {screen === 'notifications' ? <NotificationsScreen goTo={goTo} fromProfile={false} /> : null}
       {screen === 'notifications_from_profile' ? (
@@ -102,7 +115,15 @@ export function AhzarmanApp() {
       {screen === 'history' ? <HistoryScreen goTo={goTo} transactions={transactions} /> : null}
       {screen === 'share_points' ? <SharePointsScreen goTo={goTo} /> : null}
       {screen === 'redeem_points' ? <RedeemPointsScreen goTo={goTo} /> : null}
-      {screen === 'refer' ? <ReferScreen goTo={goTo} /> : null}
+      {screen === 'refer' ? <ReferScreen goTo={goTo} goBack={goBack} /> : null}
+      {screen === 'estate_account' ? (
+        <EstateAccountScreen
+          goBack={goBack}
+          userEstate={userEstate}
+          estatePoints={estatePoints}
+          onSetEstate={setUserEstate}
+        />
+      ) : null}
       {screen === 'electricity' ? <ElectricityScreen goTo={goTo} onAddTx={onAddTx} /> : null}
       {screen === 'elec_success' ? <ElecSuccessScreen goTo={goTo} /> : null}
       {screen === 'airtime' ? (
@@ -183,6 +204,7 @@ export function AhzarmanApp() {
         'personal_info',
         'security',
         'terms',
+        'estate_account',
       ].includes(screen)
         ? null
         : <GenericScreen screen={screen} />}

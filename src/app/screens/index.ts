@@ -10,6 +10,7 @@ export { HistoryScreen } from './HistoryScreen';
 export { SharePointsScreen } from './SharePointsScreen';
 export { RedeemPointsScreen } from './RedeemPointsScreen';
 export { ReferScreen } from './ReferScreen';
+export { EstateAccountScreen } from './EstateAccountScreen';
 export { ElectricityScreen } from './ElectricityScreen';
 export { ElecSuccessScreen } from './ElecSuccessScreen';
 export { AirtimeScreen } from './AirtimeScreen';

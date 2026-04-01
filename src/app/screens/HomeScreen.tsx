@@ -3,7 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { C } from '../constants';
 import { SERVICE_ITEMS, txMeta } from '../data';
 import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
-import type { AppScreen, Tx } from '../types';
+import type { AppScreen, Estate, Tx } from '../types';
 
 function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [idx, setIdx] = useState(0);
@@ -33,9 +33,11 @@ function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
 export function HomeScreen({
   goTo,
   transactions,
+  userEstate,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
+  userEstate: Estate | null;
 }) {
   return (
     <View style={styles.page}>
@@ -60,6 +62,26 @@ export function HomeScreen({
             <Pressable onPress={() => goTo('redeem_points')} style={styles.pointsGhostBtn}><Text style={styles.pointsGhostBtnTxt}>Redeem</Text></Pressable>
           </View>
         </View>
+
+        {userEstate ? (
+          <Pressable
+            onPress={() => goTo('estate_account')}
+            style={[styles.estateStrip, { backgroundColor: userEstate.color }]}
+          >
+            <Text style={styles.estateEmoji}>{userEstate.emoji}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.estateName}>{userEstate.name}</Text>
+              <Text style={styles.estateSub}>
+                Community Pool · {userEstate.members} residents
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.estatePct}>+10%</Text>
+              <Text style={styles.estatePctSub}>pts contributed</Text>
+            </View>
+            <Text style={styles.estateChev}>›</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.rowBetween}>
           <Text style={styles.sectionTitle}>Services</Text>
@@ -136,6 +158,22 @@ const styles = StyleSheet.create({
   pointsPrimaryBtnTxt: { color: C.ink, fontSize: 12, fontWeight: '700' },
   pointsGhostBtn: { flex: 1, height: 36, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   pointsGhostBtnTxt: { color: C.white, fontSize: 12, fontWeight: '700' },
+  estateStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    overflow: 'hidden',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
+  estateEmoji: { fontSize: 20 },
+  estateName: { fontSize: 13, fontWeight: '700', color: C.white },
+  estateSub: { fontSize: 11, color: 'rgba(255,255,255,.75)', marginTop: 2 },
+  estatePct: { fontSize: 15, fontWeight: '700', color: C.white },
+  estatePctSub: { fontSize: 9, color: 'rgba(255,255,255,.7)', marginTop: 2 },
+  estateChev: { fontSize: 18, color: 'rgba(255,255,255,.7)', fontWeight: '600' },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: C.textColor, fontSize: 15, fontWeight: '600' },
   link: { color: C.primary, fontSize: 12, fontWeight: '700' },

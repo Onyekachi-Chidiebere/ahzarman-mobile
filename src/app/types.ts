@@ -27,7 +27,20 @@ export type AppScreen =
   | 'beneficiaries'
   | 'personal_info'
   | 'security'
-  | 'terms';
+  | 'terms'
+  | 'estate_account';
+
+export type Estate = {
+  id: string;
+  name: string;
+  city: string;
+  members: number;
+  code: string;
+  color: string;
+  colorLight: string;
+  emoji: string;
+  description: string;
+};
 
 export type DataPlan = {
   id: string;
