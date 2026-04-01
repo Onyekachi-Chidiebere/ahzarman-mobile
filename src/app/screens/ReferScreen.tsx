@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
 import Svg, { Path } from 'react-native-svg';
+import { copyToClipboard } from '../copyToClipboard';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { AppScreen } from '../types';
@@ -20,8 +20,8 @@ export function ReferScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    Clipboard.setString(CODE);
-    setCopied(true);
+    const ok = copyToClipboard(CODE);
+    setCopied(ok);
     setTimeout(() => setCopied(false), 2000);
   };
 

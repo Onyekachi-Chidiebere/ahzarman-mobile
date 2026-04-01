@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { C } from '../constants';
 import { SERVICE_ITEMS, txMeta } from '../data';
+import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
 import type { AppScreen, Tx } from '../types';
 
 function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
@@ -66,13 +67,23 @@ export function HomeScreen({
             <Text style={styles.link}>See all →</Text>
           </Pressable>
         </View>
-        <View style={styles.grid}>
-          {SERVICE_ITEMS.slice(0, 6).map(i => (
-            <Pressable key={i.key} onPress={() => goTo(i.key as AppScreen)} style={[styles.homeSvcTile, { backgroundColor: i.color }]}>
-              <View style={styles.gridIconInner} />
-              <Text style={styles.gridLabel}>{i.label}</Text>
+        <View style={styles.gridCard}>
+          <View style={styles.grid}>
+            {SERVICE_ITEMS.map(i => (
+              <Pressable
+                key={i.key}
+                onPress={() => goTo(i.key as AppScreen)}
+                style={[styles.homeSvcTile, { backgroundColor: i.color }]}
+              >
+                <ServiceIcon name={i.key as ServiceItemKey} size={24} />
+                <Text style={styles.gridLabel}>{i.label}</Text>
+              </Pressable>
+            ))}
+            <Pressable onPress={() => goTo('services')} style={[styles.homeSvcTile, styles.moreTile]}>
+              <MoreIcon width={22} height={22} />
+              <Text style={styles.moreLabel}>More →</Text>
             </Pressable>
-          ))}
+          </View>
         </View>
         <MarketingCarousel goTo={goTo} />
 
@@ -128,10 +139,25 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: C.textColor, fontSize: 15, fontWeight: '600' },
   link: { color: C.primary, fontSize: 12, fontWeight: '700' },
-  grid: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  homeSvcTile: { width: '31.5%', borderRadius: 9, padding: 10, alignItems: 'center' },
-  gridIconInner: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.55)' },
-  gridLabel: { color: C.ink, fontSize: 13, fontWeight: '700' },
+  gridCard: {
+    marginTop: 10,
+    backgroundColor: C.white,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  homeSvcTile: { width: '31.5%', minHeight: 88, borderRadius: 9, padding: 10, alignItems: 'center', justifyContent: 'center', gap: 7 },
+  moreTile: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: C.borderMd,
+    gap: 6,
+  },
+  moreLabel: { fontSize: 12, fontWeight: '500', textAlign: 'center', color: C.olive },
+  gridLabel: { fontSize: 12, fontWeight: '500', textAlign: 'center', color: C.muted },
   promoCard: { marginTop: 14, borderRadius: 12, padding: 14, minHeight: 120 },
   promoTitle: { color: '#F8F9F6', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   promoSub: { color: 'rgba(255,255,255,.55)', fontSize: 11, marginBottom: 10 },
