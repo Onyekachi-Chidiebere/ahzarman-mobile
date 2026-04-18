@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { ApiError } from '../api/client';
+import { checkElectricityMeter } from '../api/electricity';
 import { PaymentPinModal, ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { Disco } from '../discos';
@@ -17,6 +19,69 @@ import { ELECTRICITY_DISCOS } from '../discos';
 import type { AppScreen, Tx } from '../types';
 
 const grey = C.muted;
+
+function mergeMeterPayload(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {};
+  const root = data as Record<string, unknown>;
+  const nested = root.data ?? root.result ?? root.meterInfo ?? root.payload;
+  const out = { ...root };
+  if (nested && typeof nested === 'object' && nested !== null) {
+    Object.assign(out, nested as Record<string, unknown>);
+  }
+  return out;
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+function mapMeterCheckToCustomer(data: unknown): { name: string; address: string; min: string } | null {
+  const flat = mergeMeterPayload(data);
+  const name = pickString(flat, [
+    'customerName',
+    'customer_name',
+    'name',
+    'fullName',
+    'meterOwner',
+    'customer',
+    'accountName',
+    'AccountName',
+  ]);
+  const address = pickString(flat, [
+    'address',
+    'customerAddress',
+    'customer_address',
+    'meterAddress',
+    'location',
+    'serviceAddress',
+  ]);
+  const min = pickString(flat, [
+    'minVendAmount',
+   
+  ]);
+  if (!name && !address) return null;
+  return { name: name || 'Customer', address: address || '—', min: min || '500' };
+}
+
+function meterVerifyErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    const b = e.body as Record<string, unknown> | undefined;
+    if (b && typeof b === 'object') {
+      if (typeof b.message === 'string' && b.message) return b.message;
+      const err = b.error;
+      if (typeof err === 'string' && err) return err;
+      if (err && typeof err === 'object' && 'message' in err && typeof (err as { message?: string }).message === 'string') {
+        return (err as { message: string }).message;
+      }
+    }
+    return e.message;
+  }
+  return 'Could not verify meter. Check your connection and try again.';
+}
 
 export function ElectricityScreen({
   goTo,
@@ -29,7 +94,8 @@ export function ElectricityScreen({
   const [showDiscoSheet, setShowDiscoSheet] = useState(false);
   const [meter, setMeter] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [verified, setVerified] = useState<{ name: string; address: string } | null>(null);
+  const [verified, setVerified] = useState<{ name: string; address: string, min:string } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [showPin, setShowPin] = useState(false);
 
@@ -37,10 +103,27 @@ export function ElectricityScreen({
     if (!disco || meter.length < 11) return;
     setVerifying(true);
     setVerified(null);
-    setTimeout(() => {
-      setVerifying(false);
-      setVerified({ name: 'MERCY OKAFOR', address: 'Plot 3, Lugbe Extension, Abuja' });
-    }, 2000);
+    setVerifyError(null);
+    void (async () => {
+      try {
+        const discoCode = disco.buypowerCode ?? disco.id;
+        const res = await checkElectricityMeter({ meter, disco: discoCode, vendType: 'PREPAID' });
+        const mapped = mapMeterCheckToCustomer(res.data);
+        if (mapped) {
+          setVerified(mapped);
+        } else {
+          setVerified({
+            name: 'Meter verified',
+            address: `Proceed to enter amount for ${disco.name}.`,
+            min: '500',
+          });
+        }
+      } catch (e) {
+        setVerifyError(meterVerifyErrorMessage(e));
+      } finally {
+        setVerifying(false);
+      }
+    })();
   };
 
   const handleSuccess = () => {
@@ -104,6 +187,7 @@ export function ElectricityScreen({
               onChangeText={v => {
                 setMeter(v.replace(/\D/g, '').slice(0, 13));
                 setVerified(null);
+                setVerifyError(null);
               }}
               placeholder="Enter meter number"
               placeholderTextColor={C.placeholder}
@@ -148,9 +232,14 @@ export function ElectricityScreen({
             <Text style={styles.verifyNote}>Verifying meter…</Text>
           </View>
         ) : null}
+        {verifyError ? (
+          <View style={styles.errBox}>
+            <Text style={styles.errTxt}>{verifyError}</Text>
+          </View>
+        ) : null}
         {!disco ? <Text style={styles.hint}>Select a DisCo first before verifying meter</Text> : null}
 
-        <Text style={styles.sectionLabel}>AMOUNT (₦500 MINIMUM)</Text>
+        <Text style={styles.sectionLabel}>AMOUNT (₦{verified?.min ?? '500'} MINIMUM)</Text>
         <TextInput
           style={[styles.input, !verified && styles.inputDisabled]}
           editable={!!verified}
@@ -195,6 +284,7 @@ export function ElectricityScreen({
                       setShowDiscoSheet(false);
                       setMeter('');
                       setVerified(null);
+                      setVerifyError(null);
                     }}
                     style={[styles.sheetRow, sel ? { borderColor: C.primary, backgroundColor: C.primFaint } : null]}
                   >
@@ -302,6 +392,15 @@ const styles = StyleSheet.create({
   verifyRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   verifyNote: { fontSize: 12, color: grey },
   hint: { fontSize: 12, color: C.placeholder, marginTop: 6 },
+  errBox: {
+    marginTop: 8,
+    backgroundColor: C.errorBg,
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: C.errorBorder,
+  },
+  errTxt: { fontSize: 13, fontWeight: '500', color: C.error, textAlign: 'center' },
   input: {
     height: 52,
     borderRadius: 10,

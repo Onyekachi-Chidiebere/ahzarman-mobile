@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import type { AuthUser } from '../api/auth';
 import type { AppScreen, Estate } from '../types';
 import UserIcon from '../assets/icons/user.svg';
 import UsersIcon from '../assets/icons/users.svg';
@@ -13,9 +14,11 @@ import CardIcon from '../assets/icons/card.svg';
 export function ProfileScreen({
   goTo,
   userEstate,
+  authUser,
 }: {
   goTo: (s: AppScreen) => void;
   userEstate: Estate | null;
+  authUser?: AuthUser | null;
 }) {
   const baseRows = [
     { label: 'Personal Info', sub: 'Name, email, phone', screen: 'personal_info' as const, icon: <UserIcon /> },
@@ -57,11 +60,11 @@ export function ProfileScreen({
       <View style={styles.content}>
         <View style={styles.topCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarTxt}>M</Text>
+            <Text style={styles.avatarTxt}>{(authUser?.name?.trim()?.[0] ?? 'U').toUpperCase()}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.name}>Mercy James</Text>
-            <Text style={styles.email}>mercy@ahzarman.app</Text>
+            <Text style={styles.name}>{authUser?.name?.trim() || 'Ahzarman user'}</Text>
+            <Text style={styles.email}>{authUser?.email ?? ''}</Text>
             <View style={styles.pill}>
               <Text style={styles.pillTxt}>Silver · 1,850 pts</Text>
             </View>

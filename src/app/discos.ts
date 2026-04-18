@@ -1,7 +1,8 @@
-export type Disco = { id: string; name: string; short: string };
+/** `buypowerCode` = value for BuyPower v2 `disco` query when it differs from `id`. */
+export type Disco = { id: string; name: string; short: string; buypowerCode?: string };
 
 export const ELECTRICITY_DISCOS: Disco[] = [
-  { id: 'AEDC', name: 'Abuja Electricity', short: 'FCT · Niger · Kogi · Nasarawa' },
+  { id: 'AEDC', name: 'Abuja Electricity', short: 'FCT · Niger · Kogi · Nasarawa', buypowerCode: 'ABUJA' },
   { id: 'IKEDC', name: 'Ikeja Electric', short: 'Lagos — Ikeja axis' },
   { id: 'EKEDC', name: 'Eko Electricity', short: 'Lagos — Island & Eko axis' },
   { id: 'PHED', name: 'Port Harcourt Electric', short: 'Rivers · Bayelsa · Cross River · Akwa Ibom' },

@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import type { AuthUser } from '../api/auth';
+import { registerAccount, sendOtp, verifyOtp } from '../api/auth';
+import { ApiError } from '../api/client';
 import Svg, { Path } from 'react-native-svg';
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
@@ -41,7 +52,13 @@ function PinDots({ val, n = 4 }: { val: string; n?: number }) {
   );
 }
 
-export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+export function SignUpScreen({
+  goTo,
+  onAuthSuccess,
+}: {
+  goTo: (s: AppScreen) => void;
+  onAuthSuccess: (token: string, user: AuthUser) => void | Promise<void>;
+}) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -53,6 +70,11 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [pinStage, setPinStage] = useState<'create' | 'confirm'>('create');
   const [pinErr, setPinErr] = useState('');
   const [resendKey, setResendKey] = useState(0);
+  const [apiErr, setApiErr] = useState('');
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [devOtpHint, setDevOtpHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -75,7 +97,7 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
 
   const canStep1 = name.trim().length >= 2 && phone.replace(/\D/g, '').length === 11;
 
-  const handlePinContinue = () => {
+  const handlePinContinue = async () => {
     setPinErr('');
     if (pinStage === 'create') {
       if (pin.length < 4) return;
@@ -87,7 +109,19 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
       setConfirmPin('');
       return;
     }
-    goTo('home');
+    setRegistering(true);
+    setApiErr('');
+    try {
+      const res = await registerAccount(name.trim(), phone, pin);
+      if (res.data?.token && res.data?.user) {
+        await onAuthSuccess(res.data.token, res.data.user);
+      }
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Could not create account';
+      setApiErr(msg);
+    } finally {
+      setRegistering(false);
+    }
   };
 
   const handleBack = () => {
@@ -130,8 +164,34 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
                 keyboardType="phone-pad"
               />
             </View>
-            <Pressable disabled={!canStep1} onPress={() => canStep1 && setStep(2)} style={[styles.btn, !canStep1 && styles.btnDis]}>
-              <Text style={styles.btnTxt}>Send Verification Code →</Text>
+            {apiErr ? (
+              <View style={styles.errBox}>
+                <Text style={styles.errTxt}>{apiErr}</Text>
+              </View>
+            ) : null}
+            <Pressable
+              disabled={!canStep1 || sending}
+              onPress={async () => {
+                if (!canStep1 || sending) return;
+                setApiErr('');
+                setSending(true);
+                try {
+                  const r = await sendOtp(phone, 'register');
+                  if (__DEV__ && r.debug_code) setDevOtpHint(String(r.debug_code));
+                  setStep(2);
+                } catch (e) {
+                  setApiErr(e instanceof ApiError ? e.message : 'Could not send code');
+                } finally {
+                  setSending(false);
+                }
+              }}
+              style={[styles.btn, (!canStep1 || sending) && styles.btnDis]}
+            >
+              {sending ? (
+                <ActivityIndicator color={C.ink} />
+              ) : (
+                <Text style={styles.btnTxt}>Send Verification Code →</Text>
+              )}
             </Pressable>
             <View style={styles.footerRow}>
               <Text style={styles.footerMuted}>Already have an account? </Text>
@@ -168,12 +228,54 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
               }}
               onDelete={() => setOtp(v => v.slice(0, -1))}
             />
-            <Pressable disabled={otp.length < 6} onPress={() => otp.length >= 6 && setStep(3)} style={[styles.btn, otp.length < 6 && styles.btnDis]}>
-              <Text style={styles.btnTxt}>Verify & Continue →</Text>
+            {apiErr ? (
+              <View style={styles.errBox}>
+                <Text style={styles.errTxt}>{apiErr}</Text>
+              </View>
+            ) : null}
+            {__DEV__ && devOtpHint ? (
+              <Text style={styles.demo}>Dev: use code {devOtpHint}</Text>
+            ) : null}
+            <Pressable
+              disabled={otp.length < 6 || verifying}
+              onPress={async () => {
+                if (otp.length < 6 || verifying) return;
+                setApiErr('');
+                setVerifying(true);
+                try {
+                  await verifyOtp(phone, otp, 'register');
+                  setStep(3);
+                } catch (e) {
+                  setApiErr(e instanceof ApiError ? e.message : 'Verification failed');
+                } finally {
+                  setVerifying(false);
+                }
+              }}
+              style={[styles.btn, (otp.length < 6 || verifying) && styles.btnDis]}
+            >
+              {verifying ? (
+                <ActivityIndicator color={C.ink} />
+              ) : (
+                <Text style={styles.btnTxt}>Verify & Continue →</Text>
+              )}
             </Pressable>
             <Text style={styles.centerTxt}>
               {canResend ? (
-                <Text onPress={() => { setOtp(''); setResendKey(k => k + 1); }} style={styles.link}>
+                <Text
+                  onPress={() => {
+                    setOtp('');
+                    setResendKey(k => k + 1);
+                    void (async () => {
+                      try {
+                        const r = await sendOtp(phone, 'register');
+                        if (__DEV__ && r.debug_code) setDevOtpHint(String(r.debug_code));
+                      } catch (e) {
+                        setApiErr(e instanceof ApiError ? e.message : 'Could not resend');
+                      }
+                    })();
+                  }}
+                  style={styles.link}
+                >
                   Resend code →
                 </Text>
               ) : (
@@ -185,7 +287,6 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
                 </>
               )}
             </Text>
-            <Text style={styles.demo}>Demo: any 6-digit code works</Text>
           </>
         ) : null}
 
@@ -198,9 +299,9 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
                 : 'Re-enter your PIN to confirm.'}
             </Text>
             <PinDots val={pinStage === 'create' ? pin : confirmPin} />
-            {pinErr ? (
+            {pinErr || apiErr ? (
               <View style={styles.errBox}>
-                <Text style={styles.errTxt}>{pinErr}</Text>
+                <Text style={styles.errTxt}>{pinErr || apiErr}</Text>
               </View>
             ) : null}
             <NumPad
@@ -215,11 +316,20 @@ export function SignUpScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
               }}
             />
             <Pressable
-              disabled={(pinStage === 'create' ? pin : confirmPin).length < 4}
-              onPress={handlePinContinue}
-              style={[styles.btn, (pinStage === 'create' ? pin : confirmPin).length < 4 && styles.btnDis]}
+              disabled={(pinStage === 'create' ? pin : confirmPin).length < 4 || registering}
+              onPress={() => void handlePinContinue()}
+              style={[
+                styles.btn,
+                ((pinStage === 'create' ? pin : confirmPin).length < 4 || registering) && styles.btnDis,
+              ]}
             >
-              <Text style={styles.btnTxt}>{pinStage === 'create' ? 'Continue →' : 'Create Account & Sign In →'}</Text>
+              {registering ? (
+                <ActivityIndicator color={C.ink} />
+              ) : (
+                <Text style={styles.btnTxt}>
+                  {pinStage === 'create' ? 'Continue →' : 'Create Account & Sign In →'}
+                </Text>
+              )}
             </Pressable>
           </>
         ) : null}

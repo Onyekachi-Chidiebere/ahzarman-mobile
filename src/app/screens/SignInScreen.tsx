@@ -1,5 +1,8 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ApiError } from '../api/client';
+import type { AuthUser } from '../api/auth';
+import { login, resetPin, sendOtp, verifyOtp } from '../api/auth';
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
@@ -41,16 +44,37 @@ function OtpDots6({ val, err }: { val: string; err?: boolean }) {
 
 function ForgotPinFlow({
   phone,
-  onDone,
+  onAuthSuccess,
 }: {
   phone: string;
-  onDone: () => void;
+  onAuthSuccess: (token: string, user: AuthUser) => void | Promise<void>;
 }) {
   const [stage, setStage] = useState<'otp' | 'newpin' | 'confirm'>('otp');
   const [otp, setOtp] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [devHint, setDevHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setErr('');
+      try {
+        const r = await sendOtp(phone, 'reset_pin');
+        if (!cancelled && __DEV__ && r.debug_code) setDevHint(String(r.debug_code));
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof ApiError ? e.message : 'Could not send code');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phone]);
 
   const onOtpDigit = (d: string) => {
     if (otp.length >= 6) return;
@@ -58,11 +82,15 @@ function ForgotPinFlow({
     setOtp(next);
     setErr('');
     if (next.length === 6) {
-      if (next === '123456') setTimeout(() => setStage('newpin'), 300);
-      else {
-        setErr('Wrong OTP. Try again.');
-        setTimeout(() => setOtp(''), 700);
-      }
+      void (async () => {
+        try {
+          await verifyOtp(phone, next, 'reset_pin');
+          setStage('newpin');
+        } catch (e) {
+          setErr(e instanceof ApiError ? e.message : 'Wrong code');
+          setTimeout(() => setOtp(''), 700);
+        }
+      })();
     }
   };
 
@@ -78,14 +106,31 @@ function ForgotPinFlow({
       setConfirmPin(next);
       setErr('');
       if (next.length === 4) {
-        if (next === newPin) setTimeout(() => onDone(), 400);
-        else {
+        if (next !== newPin) {
           setErr("PINs don't match. Try again.");
           setTimeout(() => setConfirmPin(''), 700);
+          return;
         }
+        void (async () => {
+          try {
+            const res = await resetPin(phone, newPin);
+            if (res.data?.token && res.data?.user) await onAuthSuccess(res.data.token, res.data.user);
+          } catch (e) {
+            setErr(e instanceof ApiError ? e.message : 'Could not update PIN');
+          }
+        })();
       }
     }
   };
+
+  if (loading && stage === 'otp') {
+    return (
+      <View style={{ gap: 16, alignItems: 'center', paddingVertical: 24 }}>
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={styles.lead}>Sending verification code…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ gap: 16 }}>
@@ -93,7 +138,7 @@ function ForgotPinFlow({
         <>
           <Text style={styles.h1}>Verify your number</Text>
           <Text style={styles.lead}>
-            Enter the 6-digit OTP sent to <Text style={{ fontWeight: '700' }}>+234 {phone?.slice(-8)}</Text>
+            Enter the 6-digit OTP sent to <Text style={{ fontWeight: '700' }}>+234 {phone?.slice(-10)}</Text>
           </Text>
           <OtpDots6 val={otp} err={!!err} />
           {err ? (
@@ -102,7 +147,7 @@ function ForgotPinFlow({
             </View>
           ) : null}
           <NumPad onDigit={onOtpDigit} onDelete={() => { setOtp(v => v.slice(0, -1)); setErr(''); }} />
-          <Text style={styles.demo}>Demo OTP: 123456</Text>
+          {__DEV__ && devHint ? <Text style={styles.demo}>Dev: use code {devHint}</Text> : null}
         </>
       ) : null}
 
@@ -138,25 +183,39 @@ function ForgotPinFlow({
   );
 }
 
-export function SignInScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+export function SignInScreen({
+  goTo,
+  onAuthSuccess,
+}: {
+  goTo: (s: AppScreen) => void;
+  onAuthSuccess: (token: string, user: AuthUser) => void | Promise<void>;
+}) {
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
 
   const validPhone = phone.replace(/\D/g, '').length === 11;
 
   const onDigit = (d: string) => {
-    if (pin.length >= 4) return;
+    if (pin.length >= 4 || signingIn) return;
     const next = pin + d;
     setPin(next);
     setErr('');
     if (next.length === 4) {
-      if (next === '1234') setTimeout(() => goTo('home'), 400);
-      else {
-        setErr('Incorrect PIN. Try again.');
-        setTimeout(() => setPin(''), 700);
-      }
+      void (async () => {
+        setSigningIn(true);
+        try {
+          const res = await login(phone, next);
+          if (res.data?.token && res.data?.user) await onAuthSuccess(res.data.token, res.data.user);
+        } catch (e) {
+          setErr(e instanceof ApiError ? e.message : 'Sign in failed');
+          setTimeout(() => setPin(''), 700);
+        } finally {
+          setSigningIn(false);
+        }
+      })();
     }
   };
 
@@ -210,8 +269,13 @@ export function SignInScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
                 <Text style={styles.errTxt}>{err}</Text>
               </View>
             ) : null}
-            <NumPad onDigit={onDigit} onDelete={() => { setPin(v => v.slice(0, -1)); setErr(''); }} />
-            <Text style={styles.demo}>Demo PIN: 1234</Text>
+            {signingIn ? (
+              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                <ActivityIndicator color={C.primary} />
+              </View>
+            ) : (
+              <NumPad onDigit={onDigit} onDelete={() => { setPin(v => v.slice(0, -1)); setErr(''); }} />
+            )}
             <View style={styles.footerRow}>
               <Text style={styles.footerMuted}>Forgot PIN? </Text>
               <Pressable onPress={() => setStep(3)}>
@@ -221,7 +285,7 @@ export function SignInScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           </>
         ) : null}
 
-        {step === 3 ? <ForgotPinFlow phone={phone} onDone={() => goTo('home')} /> : null}
+        {step === 3 ? <ForgotPinFlow phone={phone} onAuthSuccess={onAuthSuccess} /> : null}
       </ScrollView>
     </View>
   );

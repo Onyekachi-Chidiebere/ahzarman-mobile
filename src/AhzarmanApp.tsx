@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { SafeAreaView, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
+import { fetchMe, type AuthUser } from './app/api/auth';
 import { C } from './app/constants';
 import { SAMPLE_TXS } from './app/data';
 import { BottomNav } from './app/components';
@@ -37,7 +39,11 @@ import {
 } from './app/screens/index';
 import type { AppScreen, Beneficiary, DataState, Estate, Tx } from './app/types';
 
+const AUTH_TOKEN_KEY = 'auth_token';
+
 export function AhzarmanApp() {
+  const [booting, setBooting] = useState(true);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [screen, setScreen] = useState<AppScreen>('onboarding');
   const [stack, setStack] = useState<AppScreen[]>(['onboarding']);
   const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([
@@ -54,6 +60,35 @@ export function AhzarmanApp() {
   const [successPts, setSuccessPts] = useState(30);
   const [userEstate, setUserEstate] = useState<Estate | null>(null);
   const [estatePoints, setEstatePoints] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+        if (!t) return;
+        const me = await fetchMe(t);
+        if (cancelled) return;
+        setAuthUser(me);
+        setScreen('home');
+        setStack(['home']);
+      } catch {
+        await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onAuthSuccess = async (token: string, user: AuthUser) => {
+    await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+    setAuthUser(user);
+    setScreen('home');
+    setStack(['home']);
+  };
 
   const onAddTx = (tx: Tx) => {
     setTransactions(prev => [tx, ...prev]);
@@ -93,20 +128,37 @@ export function AhzarmanApp() {
     });
   };
 
+  if (booting) {
+    return (
+      <SafeAreaView style={[styles.root, styles.boot]}>
+        <View style={styles.bootInner}>
+          <ActivityIndicator size="large" color={C.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.root}>
       {screen === 'onboarding' ? <OnboardingScreen goTo={goTo} /> : null}
-      {screen === 'sign_up' ? <SignUpScreen goTo={goTo} /> : null}
-      {screen === 'sign_in' ? <SignInScreen goTo={goTo} /> : null}
+      {screen === 'sign_up' ? <SignUpScreen goTo={goTo} onAuthSuccess={onAuthSuccess} /> : null}
+      {screen === 'sign_in' ? <SignInScreen goTo={goTo} onAuthSuccess={onAuthSuccess} /> : null}
 
       {screen === 'home' ? (
-        <HomeScreen goTo={goTo} transactions={transactions} userEstate={userEstate} />
+        <HomeScreen
+          goTo={goTo}
+          transactions={transactions}
+          userEstate={userEstate}
+          authUser={authUser}
+        />
       ) : null}
       {screen === 'services' ? <ServicesScreen goTo={goTo} /> : null}
       {screen === 'rewards' ? (
         <RewardsScreen goTo={goTo} userEstate={userEstate} estatePoints={estatePoints} />
       ) : null}
-      {screen === 'profile' ? <ProfileScreen goTo={goTo} userEstate={userEstate} /> : null}
+      {screen === 'profile' ? (
+        <ProfileScreen goTo={goTo} userEstate={userEstate} authUser={authUser} />
+      ) : null}
 
       {screen === 'notifications' ? <NotificationsScreen goTo={goTo} fromProfile={false} /> : null}
       {screen === 'notifications_from_profile' ? (
@@ -216,5 +268,7 @@ export function AhzarmanApp() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.surface },
+  boot: { justifyContent: 'center', alignItems: 'center' },
+  bootInner: { padding: 24 },
 });
 

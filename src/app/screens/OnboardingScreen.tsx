@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { getOnboardingSlides } from '../api/auth';
 import { C } from '../constants';
 import type { AppScreen } from '../types';
 
@@ -25,24 +26,42 @@ function OnboardingArt({ idx }: { idx: number }) {
   );
 }
 
+const DEFAULT_SLIDES = [
+  { title: 'Airtime & Data', sub: 'Buy airtime and data for any network instantly.' },
+  { title: 'Pay for Electricity', sub: 'Your prepaid electricity token delivered quickly.' },
+  { title: 'Earn Points', sub: 'Every purchase earns points you can share or redeem.' },
+  { title: 'Gift Cards & More', sub: 'Flights, betting, gift cards, cable TV — all in one app.' },
+];
+
 export function OnboardingScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [idx, setIdx] = useState(0);
-  const slides = useMemo(
-    () => [
-      { title: 'Airtime & Data', sub: 'Buy airtime and data for any network instantly.' },
-      { title: 'Pay for Electricity', sub: 'Your prepaid electricity token delivered quickly.' },
-      { title: 'Earn Points', sub: 'Every purchase earns points you can share or redeem.' },
-      { title: 'Gift Cards & More', sub: 'Flights, betting, gift cards, cable TV — all in one app.' },
-    ],
-    [],
-  );
+  const [slides, setSlides] = useState(DEFAULT_SLIDES);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const remote = await getOnboardingSlides();
+        if (!cancelled && remote.length > 0) {
+          setSlides(remote.map(r => ({ title: r.title, sub: r.sub })));
+        }
+      } catch {
+        /* keep defaults if server unreachable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const artIdx = useMemo(() => (slides[idx]?.title?.length ?? 0) % 2, [slides, idx]);
   const s = slides[idx];
 
   return (
     <View style={styles.page}>
       <View style={styles.content}>
         <View style={styles.hero}>
-          <OnboardingArt idx={idx} />
+          <OnboardingArt idx={artIdx} />
         </View>
         <View style={styles.dots}>
           {slides.map((_, i) => (

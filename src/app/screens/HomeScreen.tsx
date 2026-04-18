@@ -3,6 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { C } from '../constants';
 import { SERVICE_ITEMS, txMeta } from '../data';
 import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
+import type { AuthUser } from '../api/auth';
 import type { AppScreen, Estate, Tx } from '../types';
 
 function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
@@ -34,18 +35,21 @@ export function HomeScreen({
   goTo,
   transactions,
   userEstate,
+  authUser,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
   userEstate: Estate | null;
+  authUser?: AuthUser | null;
 }) {
+  const firstName = authUser?.name?.trim().split(/\s+/)[0] ?? 'there';
   return (
     <View style={styles.page}>
       <View style={styles.content}>
         <View style={styles.topRow}>
           <View style={styles.avatar} />
           <View style={styles.topTextWrap}>
-            <Text style={styles.topHi}>Hi, Mercy!</Text>
+            <Text style={styles.topHi}>Hi, {firstName}!</Text>
             <Text style={styles.topSub}>Welcome back</Text>
           </View>
           <Pressable onPress={() => goTo('notifications')} hitSlop={10} style={styles.iconBtn}>
