@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -12,11 +13,15 @@ import {
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ApiError } from '../api/client';
 import { checkElectricityMeter } from '../api/electricity';
-import { PaymentPinModal, ScreenHeader } from '../components';
+import type { AuthUser } from '../api/auth';
+import { completeElectricityPurchase, initializeElectricityPurchase } from '../api/electricityPurchase';
+import { PAYSTACK_PUBLIC_KEY } from '../config';
+import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { Disco } from '../discos';
 import { ELECTRICITY_DISCOS } from '../discos';
-import type { AppScreen, Tx } from '../types';
+import type { AppScreen, ElecPurchaseSummary, Tx } from '../types';
+import { Paystack } from './ElectricityPaystackModal';
 
 const grey = C.muted;
 
@@ -59,10 +64,7 @@ function mapMeterCheckToCustomer(data: unknown): { name: string; address: string
     'location',
     'serviceAddress',
   ]);
-  const min = pickString(flat, [
-    'minVendAmount',
-   
-  ]);
+  const min = pickString(flat, ['minVendAmount', 'minAmount', 'minimum', 'minimumAmount']);
   if (!name && !address) return null;
   return { name: name || 'Customer', address: address || '—', min: min || '500' };
 }
@@ -86,9 +88,13 @@ function meterVerifyErrorMessage(e: unknown): string {
 export function ElectricityScreen({
   goTo,
   onAddTx,
+  authUser,
+  onPurchaseSuccess,
 }: {
   goTo: (s: AppScreen) => void;
   onAddTx: (tx: Tx) => void;
+  authUser: AuthUser | null;
+  onPurchaseSuccess: (summary: ElecPurchaseSummary) => void;
 }) {
   const [disco, setDisco] = useState<Disco | null>(null);
   const [showDiscoSheet, setShowDiscoSheet] = useState(false);
@@ -97,7 +103,15 @@ export function ElectricityScreen({
   const [verified, setVerified] = useState<{ name: string; address: string, min:string } | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
-  const [showPin, setShowPin] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payCheckout, setPayCheckout] = useState<{
+    reference: string;
+    transactionId: number;
+    email: string;
+    metadata: Record<string, unknown>;
+  } | null>(null);
 
   const handleVerify = () => {
     if (!disco || meter.length < 11) return;
@@ -126,23 +140,75 @@ export function ElectricityScreen({
     })();
   };
 
-  const handleSuccess = () => {
-    const amt = parseInt(amount || '0', 10);
-    onAddTx({
-      id: String(Date.now()),
-      type: 'electricity',
-      title: `Electricity — ${disco?.id ?? ''}`,
-      amount: `-₦${amt.toLocaleString()}`,
-      pts: '+250 pts',
-      date: 'Just now',
-      status: 'Successful',
-    });
-    setShowPin(false);
-    goTo('elec_success');
+  const amtNum = parseInt(amount || '0', 10);
+  const minPay = Math.max(500, parseInt(verified?.min || '500', 10) || 500);
+  const canOpenPay = verified && amtNum >= minPay;
+
+  const openPayModal = () => {
+    if (!canOpenPay || !disco) return;
+    if (!authUser) {
+      Alert.alert('Sign in required', 'Please sign in to buy electricity.');
+      return;
+    }
+    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
+      Alert.alert(
+        'Paystack key missing',
+        'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts (your pk_test_ or pk_live_ key).',
+      );
+      return;
+    }
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      return;
+    }
+
+    setPayError(null);
+    void (async () => {
+      setPaying(true);
+      try {
+        const discoCode = disco.buypowerCode ?? disco.id;
+        const init = await initializeElectricityPurchase({
+          user_id: authUser.id,
+          meter,
+          disco: discoCode,
+          amount: amtNum,
+          phone: (authUser.phone || '').replace(/\D/g, '').slice(-11) || '08000000000',
+          name: authUser.name,
+          email: authUser.email,
+          vendType: 'PREPAID',
+          paymentType: 'B2B',
+          defer_payment_init: true,
+        });
+        const reference = init.data?.reference;
+        if (!reference) {
+          throw new Error('Server did not return payment reference');
+        }
+        setPayCheckout({
+          reference,
+          transactionId: init.data.transaction_id,
+          email,
+          metadata: {
+            user_id: authUser.id,
+            transaction_id: init.data.transaction_id,
+            type: 'electricity',
+            meter: String(meter).trim(),
+          },
+        });
+        setShowPayModal(true);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not start checkout';
+        setPayError(msg);
+      } finally {
+        setPaying(false);
+      }
+    })();
   };
 
-  const amtNum = parseInt(amount || '0', 10);
-  const canPay = verified && amtNum >= 500;
+  const dismissPayModal = () => {
+    setShowPayModal(false);
+    setPayCheckout(null);
+  };
 
   return (
     <View style={styles.page}>
@@ -251,11 +317,24 @@ export function ElectricityScreen({
         />
         {!verified ? <Text style={styles.fieldHint}>Verify meter number first</Text> : null}
 
-        <Pressable disabled={!canPay} onPress={() => canPay && setShowPin(true)} style={[styles.payBtn, !canPay && styles.payBtnDis]}>
-          <Text style={styles.payBtnTxt}>
-            {canPay ? `Pay ₦${amtNum.toLocaleString()}` : 'Complete fields to continue'}
-          </Text>
+        <Pressable
+          disabled={!canOpenPay || paying || showPayModal}
+          onPress={openPayModal}
+          style={[styles.payBtn, (!canOpenPay || paying || showPayModal) && styles.payBtnDis]}
+        >
+          {paying ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.payBtnTxt}>
+              {canOpenPay ? `Pay ₦${amtNum.toLocaleString()}` : 'Complete fields to continue'}
+            </Text>
+          )}
         </Pressable>
+        {payError ? (
+          <View style={styles.errBox}>
+            <Text style={styles.errTxt}>{payError}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <Modal visible={showDiscoSheet} transparent animationType="slide" onRequestClose={() => setShowDiscoSheet(false)}>
@@ -312,12 +391,47 @@ export function ElectricityScreen({
         </Pressable>
       </Modal>
 
-      <PaymentPinModal
-        visible={showPin}
-        amountLabel={`₦${amtNum.toLocaleString()}`}
-        onDismiss={() => setShowPin(false)}
-        onConfirm={handleSuccess}
-      />
+      {payCheckout && disco ? (
+        <Paystack
+          visible={showPayModal}
+          paystackKey={PAYSTACK_PUBLIC_KEY}
+          amount={amtNum}
+          billingEmail={payCheckout.email}
+          reference={payCheckout.reference}
+          metadata={payCheckout.metadata}
+          onSuccess={async res => {
+            const ref = res?.reference?.trim() ? res.reference : payCheckout.reference;
+            setPaying(true);
+            try {
+              const done = await completeElectricityPurchase({ reference: ref });
+              onPurchaseSuccess({
+                meterToken: done.data?.meter_token ?? null,
+                amount: amtNum,
+                discoName: disco.name,
+                meter,
+              });
+              onAddTx({
+                id: String(Date.now()),
+                type: 'electricity',
+                title: `Electricity — ${disco.id}`,
+                amount: `-₦${amtNum.toLocaleString()}`,
+                pts: '+250 pts',
+                date: 'Just now',
+                status: 'Successful',
+              });
+            } catch (e) {
+              const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete purchase';
+              Alert.alert('Purchase failed', msg);
+            } finally {
+              setPaying(false);
+            }
+          }}
+          onCancel={() => {
+            dismissPayModal();
+          }}
+          onRequestClose={dismissPayModal}
+        />
+      ) : null}
     </View>
   );
 }

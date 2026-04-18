@@ -1,24 +1,41 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
-import type { AppScreen } from '../types';
+import type { AppScreen, ElecPurchaseSummary } from '../types';
 
-export function ElecSuccessScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+function formatTokenDisplay(token: string | null): string {
+  if (!token) return '—';
+  const compact = token.replace(/\s/g, '');
+  return compact.replace(/(.{4})/g, '$1 ').trim();
+}
+
+export function ElecSuccessScreen({
+  goTo,
+  summary,
+}: {
+  goTo: (s: AppScreen) => void;
+  summary: ElecPurchaseSummary | null;
+}) {
+  const amountLine = summary
+    ? `₦${summary.amount.toLocaleString()} · ${summary.discoName}`
+    : '₦5,050 - 49.5 kWh - AEDC';
+  const meterLine = summary ? `Meter: ${summary.meter}` : 'Meter: 45123678901 - AEDC';
+
   return (
     <View style={styles.page}>
       <ScreenHeader title="Payment Successful" onBack={() => goTo('home')} />
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Payment Successful</Text>
-          <Text style={styles.subtle}>₦5,050 - 49.5 kWh - AEDC</Text>
+          <Text style={styles.subtle}>{amountLine}</Text>
           <View style={styles.txPtsPill}>
             <Text style={styles.txPtsTxt}>+250 pts</Text>
           </View>
         </View>
         <View style={[styles.card, { backgroundColor: '#1A1A1A' }]}>
           <Text style={[styles.cardTitle, { color: '#fff' }]}>Electricity Token</Text>
-          <Text style={styles.tokenTxt}>4582 - 1937 - 6402 - 9857 - 1634</Text>
-          <Text style={[styles.subtle, { color: 'rgba(255,255,255,.65)' }]}>Meter: 45123678901 - AEDC</Text>
+          <Text style={styles.tokenTxt}>{formatTokenDisplay(summary?.meterToken ?? null)}</Text>
+          <Text style={[styles.subtle, { color: 'rgba(255,255,255,.65)' }]}>{meterLine}</Text>
         </View>
         <Pressable onPress={() => goTo('home')} style={styles.primaryBtnWide}>
           <Text style={styles.primaryBtnTxt}>Back to Home</Text>

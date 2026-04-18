@@ -67,6 +67,14 @@ export type Beneficiary = {
   network: string;
 };
 
+/** Shown on ElecSuccessScreen after Paystack checkout + BuyPower purchase. */
+export type ElecPurchaseSummary = {
+  meterToken: string | null;
+  amount: number;
+  discoName: string;
+  meter: string;
+};
+
 export type Tx = {
   id: string;
   type:

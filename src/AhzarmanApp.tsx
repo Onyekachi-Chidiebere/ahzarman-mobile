@@ -37,7 +37,7 @@ import {
   TVScreen,
   TermsScreen,
 } from './app/screens/index';
-import type { AppScreen, Beneficiary, DataState, Estate, Tx } from './app/types';
+import type { AppScreen, Beneficiary, DataState, ElecPurchaseSummary, Estate, Tx } from './app/types';
 
 const AUTH_TOKEN_KEY = 'auth_token';
 
@@ -60,6 +60,7 @@ export function AhzarmanApp() {
   const [successPts, setSuccessPts] = useState(30);
   const [userEstate, setUserEstate] = useState<Estate | null>(null);
   const [estatePoints, setEstatePoints] = useState(0);
+  const [elecSuccessSummary, setElecSuccessSummary] = useState<ElecPurchaseSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +101,9 @@ export function AhzarmanApp() {
   const showBottomNav = ['home', 'services', 'rewards', 'profile'].includes(screen);
 
   const goTo = (next: AppScreen) => {
+    if (next === 'home') {
+      setElecSuccessSummary(null);
+    }
     // Match Claude file behavior: notifications from profile routes to a special key.
     if (next === 'notifications' && screen === 'profile') {
       setScreen('notifications_from_profile');
@@ -176,8 +180,20 @@ export function AhzarmanApp() {
           onSetEstate={setUserEstate}
         />
       ) : null}
-      {screen === 'electricity' ? <ElectricityScreen goTo={goTo} onAddTx={onAddTx} /> : null}
-      {screen === 'elec_success' ? <ElecSuccessScreen goTo={goTo} /> : null}
+      {screen === 'electricity' ? (
+        <ElectricityScreen
+          goTo={goTo}
+          onAddTx={onAddTx}
+          authUser={authUser}
+          onPurchaseSuccess={sum => {
+            setElecSuccessSummary(sum);
+            goTo('elec_success');
+          }}
+        />
+      ) : null}
+      {screen === 'elec_success' ? (
+        <ElecSuccessScreen goTo={goTo} summary={elecSuccessSummary} />
+      ) : null}
       {screen === 'airtime' ? (
         <AirtimeScreen
           goTo={goTo}
