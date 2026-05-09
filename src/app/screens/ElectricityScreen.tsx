@@ -173,7 +173,7 @@ export function ElectricityScreen({
           meter,
           disco: discoCode,
           amount: amtNum,
-          phone: (authUser.phone || '').replace(/\D/g, '').slice(-11) || '08000000000',
+          phone: (authUser.phone) || '08000000000',
           name: authUser.name,
           email: authUser.email,
           vendType: 'PREPAID',
