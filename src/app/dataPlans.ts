@@ -1,7 +1,10 @@
 import type { DataPlan, DataTab } from './types';
 
-/** Catalog keyed by network (must match UI network chips). */
-export const DATA_PLANS: Record<string, Record<DataTab, DataPlan[]>> = {
+/** Catalog keyed by network (must match UI network chips). `hot` is legacy bundles used as weekly fallback when API is unavailable. */
+export const DATA_PLANS: Record<
+  string,
+  Partial<Record<DataTab, DataPlan[]>> & { hot?: DataPlan[] }
+> = {
   '9mobile': {
     hot: [{ id: 'nm-h1', size: '1GB', price: 290, validity: '1 day', pts: 14 }],
     daily: [{ id: 'nm-d1', size: '500MB', price: 150, validity: '1 day', pts: 7 }],

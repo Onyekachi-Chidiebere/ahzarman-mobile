@@ -49,9 +49,14 @@ export type DataPlan = {
   validity: string;
   pts: number;
   tag?: string;
+  /** BuyPower `tariffClass` when plan comes from tariff API — used for v2 DATA vend. */
+  tariffClass?: string;
+  /** BuyPower tariff row: drives Daily / Weekly / Monthly / Yearly tabs when present. */
+  timeUnit?: 'day' | 'week' | 'month' | 'year';
+  duration?: number;
 };
 
-export type DataTab = 'hot' | 'daily' | 'weekly' | 'monthly';
+export type DataTab = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 export type DataState = {
   tab: DataTab;

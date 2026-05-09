@@ -52,7 +52,7 @@ export function AhzarmanApp() {
   ]);
   const [transactions, setTransactions] = useState<Tx[]>(SAMPLE_TXS);
   const [dataState, setDataState] = useState<DataState>({
-    tab: 'hot',
+    tab: 'daily',
     network: 'MTN',
     plan: null,
     phone: '',

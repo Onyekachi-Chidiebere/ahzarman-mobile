@@ -1,17 +1,19 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { ApiError } from '../api/client';
+import { getDataTariffPriceList, parseTariffResponseToCatalog } from '../api/dataTariffs';
 import { PaymentPinModal, ScreenHeader } from '../components';
 import { C } from '../constants';
 import { DATA_PLANS } from '../dataPlans';
-import type { AppScreen, DataState, DataTab, Tx } from '../types';
+import type { AppScreen, DataPlan, DataState, DataTab, Tx } from '../types';
 
 const grey = C.muted;
 const TABS: { key: DataTab; label: string }[] = [
-  { key: 'hot', label: '🔥 Hot' },
   { key: 'daily', label: 'Daily' },
   { key: 'weekly', label: 'Weekly' },
   { key: 'monthly', label: 'Monthly' },
+  { key: 'yearly', label: 'Yearly' },
 ];
 
 const NET_COL: Record<string, string> = {
@@ -27,6 +29,27 @@ const NET_TXT: Record<string, string> = {
   '9mobile': '#FFFFFF',
 };
 
+/** UI chip label → BuyPower `provider` query (tariff + vend). Adjust if your dashboard uses different codes. */
+const NETWORK_TO_PROVIDER: Record<string, string> = {
+  MTN: 'MTN',
+  Airtel: 'AIRTEL',
+  Glo: 'GLO',
+  '9mobile': 'ETISALAT',
+};
+
+const NETWORK_ORDER = ['MTN', 'Airtel', 'Glo', '9mobile'] as const;
+
+/** Offline fallback only: daily, weekly, monthly, yearly — no hot tab. */
+function staticCatalogTabs(network: string): Record<DataTab, DataPlan[]> {
+  const src = (DATA_PLANS[network] ?? DATA_PLANS.MTN) as Partial<Record<DataTab, DataPlan[]>>;
+  return {
+    daily: [...(src.daily ?? [])],
+    weekly: [...(src.weekly ?? [])],
+    monthly: [...(src.monthly ?? [])],
+    yearly: [...(src.yearly ?? [])],
+  };
+}
+
 export function DataScreen({
   goTo,
   dataState,
@@ -41,9 +64,56 @@ export function DataScreen({
   onPurchaseComplete: (pointsEarned: number) => void;
 }) {
   const [showPin, setShowPin] = useState(false);
+  const [remoteCatalog, setRemoteCatalog] = useState<Record<DataTab, DataPlan[]> | null>(null);
+  const [tariffLoading, setTariffLoading] = useState(false);
+  const [tariffError, setTariffError] = useState<string | null>(null);
+  const [usingStaticFallback, setUsingStaticFallback] = useState(false);
   const { tab, network, plan, phone } = dataState;
 
-  const catalog = DATA_PLANS[network] ?? DATA_PLANS.MTN;
+  const provider = NETWORK_TO_PROVIDER[network] ?? network.toUpperCase();
+
+  useEffect(() => {
+    let cancelled = false;
+    setTariffLoading(true);
+    setTariffError(null);
+    setUsingStaticFallback(false);
+
+    void (async () => {
+      try {
+        const res = await getDataTariffPriceList('Data', provider);
+        if (cancelled) return;
+        const catalog = parseTariffResponseToCatalog(res);
+        const hasAny =
+          catalog.daily.length +
+            catalog.weekly.length +
+            catalog.monthly.length +
+            catalog.yearly.length >
+          0;
+        if (hasAny) {
+          setRemoteCatalog(catalog);
+        } else {
+          setRemoteCatalog(null);
+          setUsingStaticFallback(true);
+          setTariffError('No plans returned for this network. Showing sample catalog.');
+        }
+      } catch (e) {
+        if (cancelled) return;
+        const msg =
+          e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not load data plans';
+        setTariffError(msg);
+        setRemoteCatalog(null);
+        setUsingStaticFallback(true);
+      } finally {
+        if (!cancelled) setTariffLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [network, provider]);
+
+  const catalog = remoteCatalog ?? staticCatalogTabs(network);
   const plans = catalog[tab] ?? [];
 
   const handleNetwork = (n: string) => {
@@ -73,7 +143,7 @@ export function DataScreen({
     onPurchaseComplete(plan.pts);
   };
 
-  const clearPlan = () => setDataState(s => ({ ...s, plan: null, tab: 'hot' }));
+  const clearPlan = () => setDataState(s => ({ ...s, plan: null, tab: 'daily' }));
 
   return (
     <View style={styles.page}>
@@ -90,7 +160,7 @@ export function DataScreen({
       />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.netRow}>
-          {Object.keys(DATA_PLANS).map(n => (
+          {NETWORK_ORDER.map(n => (
             <Pressable
               key={n}
               onPress={() => handleNetwork(n)}
@@ -114,6 +184,17 @@ export function DataScreen({
             </Pressable>
           ))}
         </View>
+        {tariffLoading ? (
+          <View style={styles.tariffLoadingRow}>
+            <ActivityIndicator size="small" color={grey} />
+            <Text style={styles.tariffMeta}>Loading prices…</Text>
+          </View>
+        ) : null}
+        {tariffError ? (
+          <Text style={[styles.tariffMeta, usingStaticFallback ? styles.tariffWarn : styles.tariffErr]}>
+            {usingStaticFallback ? `${tariffError} Using offline sample plans.` : tariffError}
+          </Text>
+        ) : null}
 
         <Text style={styles.label}>PHONE</Text>
         <View style={[styles.phoneBox, phone.length === 11 ? { borderColor: '#C8D080' } : null]}>
@@ -146,6 +227,10 @@ export function DataScreen({
             </Pressable>
           ))}
         </View>
+
+        {!tariffLoading && plans.length === 0 ? (
+          <Text style={styles.emptyPlans}>No bundles for {tab}. Try another period or network.</Text>
+        ) : null}
 
         {plans.map(p => {
           const sel = plan?.id === p.id;
@@ -218,7 +303,12 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32 },
   clearBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: C.disabled },
   clearBtnTxt: { fontSize: 11, fontWeight: '600', color: grey },
-  netRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  netRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  tariffLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  tariffMeta: { fontSize: 12, color: grey, marginBottom: 10 },
+  tariffWarn: { color: C.olive },
+  tariffErr: { color: C.error },
+  emptyPlans: { fontSize: 13, color: grey, textAlign: 'center', marginBottom: 12 },
   netBtn: {
     flex: 1,
     height: 46,
