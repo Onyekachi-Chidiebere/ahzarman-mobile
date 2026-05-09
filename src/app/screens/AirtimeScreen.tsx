@@ -1,13 +1,35 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { PaymentPinModal, ScreenHeader } from '../components';
+import type { AuthUser } from '../api/auth';
+import { ApiError } from '../api/client';
+import { completeAirtimePurchase, initializeAirtimePurchase } from '../api/airtimePurchase';
+import { PAYSTACK_PUBLIC_KEY } from '../config';
+import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { AppScreen, Beneficiary, Tx } from '../types';
+import { Paystack } from './ElectricityPaystackModal';
 
 const grey = C.muted;
 const NETS = ['MTN', 'Airtel', 'Glo', '9mobile'] as const;
 const PRESETS = [50, 100, 200, 500, 1000, 2000];
+
+/** BuyPower VTU `disco` codes (match /services/airtime/vend). */
+const AIRTIME_DISCO: Record<string, string> = {
+  MTN: 'MTN',
+  Airtel: 'AIRTEL',
+  Glo: 'GLO',
+  '9mobile': '9MOBILE',
+};
 
 const NET_COL: Record<string, string> = {
   MTN: '#FFCC00',
@@ -30,18 +52,24 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
+function pointsForAmount(amt: number) {
+  return Math.max(5, Math.round(amt / 20));
+}
+
 export function AirtimeScreen({
   goTo,
   beneficiaries,
   onSaveBenef,
   onAddTx,
   onPurchaseComplete,
+  authUser,
 }: {
   goTo: (s: AppScreen) => void;
   beneficiaries: Beneficiary[];
   onSaveBenef: (b: Beneficiary) => void;
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pointsEarned: number) => void;
+  authUser: AuthUser | null;
 }) {
   const [network, setNetwork] = useState<string>('MTN');
   const [phone, setPhone] = useState('');
@@ -49,14 +77,81 @@ export function AirtimeScreen({
   const [customAmt, setCustomAmt] = useState('');
   const [save, setSave] = useState(false);
   const [benName, setBenName] = useState('');
-  const [showPin, setShowPin] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payCheckout, setPayCheckout] = useState<{
+    reference: string;
+    email: string;
+    metadata: Record<string, unknown>;
+  } | null>(null);
 
   const netBenefs = beneficiaries.filter(b => b.network === network);
   const finalAmt =
     selAmt !== null ? PRESETS[selAmt] : Math.min(50000, Math.max(0, parseInt(customAmt || '0', 10) || 0));
   const canContinue = phone.length === 11 && finalAmt >= 50 && finalAmt <= 50000;
+  const disco = AIRTIME_DISCO[network] ?? network.toUpperCase();
 
-  const handleSuccess = () => {
+  const dismissPayModal = () => {
+    setShowPayModal(false);
+    setPayCheckout(null);
+  };
+
+  const startPaystackCheckout = () => {
+    if (!canContinue) return;
+    if (!authUser) {
+      Alert.alert('Sign in required', 'Please sign in to buy airtime.');
+      return;
+    }
+    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
+      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
+      return;
+    }
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      return;
+    }
+
+    void (async () => {
+      setPaying(true);
+      try {
+        const init = await initializeAirtimePurchase({
+          user_id: authUser.id,
+          phone,
+          disco,
+          amount: finalAmt,
+          name: authUser.name,
+          email: authUser.email,
+          paymentType: 'B2B',
+          vendType: 'PREPAID',
+          defer_payment_init: true,
+        });
+        const reference = init.data?.reference;
+        if (!reference) throw new Error('Server did not return payment reference');
+
+        setPayCheckout({
+          reference,
+          email,
+          metadata: {
+            user_id: authUser.id,
+            transaction_id: init.data.transaction_id,
+            type: 'airtime',
+            disco,
+            phone,
+            amount: finalAmt,
+          },
+        });
+        setShowPayModal(true);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not start checkout';
+        Alert.alert('Checkout failed', msg);
+      } finally {
+        setPaying(false);
+      }
+    })();
+  };
+
+  const finishPurchase = (pts: number) => {
     if (save && benName.trim() && phone.length === 11) {
       onSaveBenef({ id: Date.now(), name: benName.trim(), phone, network });
     }
@@ -65,12 +160,12 @@ export function AirtimeScreen({
       type: 'airtime',
       title: `Airtime — ${network}`,
       amount: `-₦${finalAmt.toLocaleString()}`,
-      pts: '+30 pts',
+      pts: `+${pts} pts`,
       date: 'Just now',
       status: 'Successful',
     });
-    setShowPin(false);
-    onPurchaseComplete(30);
+    dismissPayModal();
+    onPurchaseComplete(pts);
   };
 
   return (
@@ -196,20 +291,48 @@ export function AirtimeScreen({
           ) : null}
         </View>
 
-        <Pressable disabled={!canContinue} onPress={() => canContinue && setShowPin(true)} style={[styles.cta, !canContinue && styles.ctaDisabled]}>
-          <Text style={styles.ctaTxt}>
-            {canContinue ? `Continue — ₦${finalAmt.toLocaleString()}` : 'Enter phone and amount'}
-          </Text>
+        <Pressable
+          disabled={!canContinue || paying || showPayModal}
+          onPress={startPaystackCheckout}
+          style={[styles.cta, (!canContinue || paying || showPayModal) && styles.ctaDisabled]}
+        >
+          {paying ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.ctaTxt}>
+              {canContinue ? `Pay with Paystack — ₦${finalAmt.toLocaleString()}` : 'Enter phone and amount'}
+            </Text>
+          )}
         </Pressable>
-        <Text style={styles.demoHint}>🔒 PIN: 1234 (demo)</Text>
       </ScrollView>
 
-      <PaymentPinModal
-        visible={showPin}
-        amountLabel={`₦${finalAmt.toLocaleString()}`}
-        onDismiss={() => setShowPin(false)}
-        onConfirm={handleSuccess}
-      />
+      {payCheckout ? (
+        <Paystack
+          visible={showPayModal}
+          paystackKey={PAYSTACK_PUBLIC_KEY}
+          amount={finalAmt}
+          billingEmail={payCheckout.email}
+          reference={payCheckout.reference}
+          metadata={payCheckout.metadata}
+          onSuccess={async res => {
+            const ref = res?.reference?.trim() ? res.reference : payCheckout.reference;
+            const pts = pointsForAmount(finalAmt);
+            setPaying(true);
+            try {
+              await completeAirtimePurchase({ reference: ref });
+              finishPurchase(pts);
+            } catch (e) {
+              const msg =
+                e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete purchase';
+              Alert.alert('Purchase failed', msg);
+            } finally {
+              setPaying(false);
+            }
+          }}
+          onCancel={() => dismissPayModal()}
+          onRequestClose={dismissPayModal}
+        />
+      ) : null}
     </View>
   );
 }
@@ -323,5 +446,4 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaTxt: { fontSize: 15, fontWeight: '800', color: C.ink },
-  demoHint: { textAlign: 'center', fontSize: 12, color: grey, marginTop: 10 },
 });

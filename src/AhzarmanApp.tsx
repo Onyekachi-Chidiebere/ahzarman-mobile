@@ -201,6 +201,7 @@ export function AhzarmanApp() {
           onSaveBenef={b => setBeneficiaries(p => [...p, b])}
           onAddTx={onAddTx}
           onPurchaseComplete={finishPurchase}
+          authUser={authUser}
         />
       ) : null}
       {screen === 'data' ? (
