@@ -1,12 +1,25 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import type { AuthUser } from '../api/auth';
 import { ApiError } from '../api/client';
+import { completeDataPurchase, initializeDataPurchase } from '../api/dataPurchase';
 import { getDataTariffPriceList, parseTariffResponseToCatalog } from '../api/dataTariffs';
-import { PaymentPinModal, ScreenHeader } from '../components';
+import { PAYSTACK_PUBLIC_KEY } from '../config';
+import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { DATA_PLANS } from '../dataPlans';
 import type { AppScreen, DataPlan, DataState, DataTab, Tx } from '../types';
+import { Paystack } from './ElectricityPaystackModal';
 
 const grey = C.muted;
 const TABS: { key: DataTab; label: string }[] = [
@@ -56,14 +69,22 @@ export function DataScreen({
   setDataState,
   onAddTx,
   onPurchaseComplete,
+  authUser,
 }: {
   goTo: (s: AppScreen) => void;
   dataState: DataState;
   setDataState: Dispatch<SetStateAction<DataState>>;
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pointsEarned: number) => void;
+  authUser: AuthUser | null;
 }) {
-  const [showPin, setShowPin] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payCheckout, setPayCheckout] = useState<{
+    reference: string;
+    email: string;
+    metadata: Record<string, unknown>;
+  } | null>(null);
   const [remoteCatalog, setRemoteCatalog] = useState<Record<DataTab, DataPlan[]> | null>(null);
   const [tariffLoading, setTariffLoading] = useState(false);
   const [tariffError, setTariffError] = useState<string | null>(null);
@@ -126,21 +147,76 @@ export function DataScreen({
     setDataState(s => ({ ...s, tab: t, plan: null }));
   };
 
-  const canContinue = !!plan && phone.length === 11;
+  const hasTariffCode = !!plan?.tariffClass?.trim();
+  const canContinue = !!plan && phone.length === 11 && hasTariffCode;
 
-  const handleSuccess = () => {
-    if (!plan) return;
-    onAddTx({
-      id: String(Date.now()),
-      type: 'data',
-      title: `Data — ${network} ${plan.size}`,
-      amount: `-₦${plan.price.toLocaleString()}`,
-      pts: `+${plan.pts} pts`,
-      date: 'Just now',
-      status: 'Successful',
-    });
-    setShowPin(false);
-    onPurchaseComplete(plan.pts);
+  const dismissPayModal = () => {
+    setShowPayModal(false);
+    setPayCheckout(null);
+  };
+
+  const startPaystackCheckout = () => {
+    if (!plan || !canContinue) return;
+    if (!authUser) {
+      Alert.alert('Sign in required', 'Please sign in to buy data.');
+      return;
+    }
+    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
+      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
+      return;
+    }
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      return;
+    }
+    if (!hasTariffCode) {
+      Alert.alert(
+        'Live prices required',
+        'This plan has no bundle code. Load network prices from the server or pick another plan.',
+      );
+      return;
+    }
+
+    void (async () => {
+      setPaying(true);
+      try {
+        const init = await initializeDataPurchase({
+          user_id: authUser.id,
+          phone,
+          disco: provider,
+          amount: plan.price,
+          name: authUser.name,
+          email: authUser.email,
+          tariffClass: plan.tariffClass!,
+          plan_label: plan.size,
+          paymentType: 'B2B',
+          vendType: 'PREPAID',
+          defer_payment_init: true,
+        });
+        const reference = init.data?.reference;
+        if (!reference) throw new Error('Server did not return payment reference');
+
+        setPayCheckout({
+          reference,
+          email,
+          metadata: {
+            user_id: authUser.id,
+            transaction_id: init.data.transaction_id,
+            type: 'data',
+            disco: provider,
+            phone,
+            tariffClass: plan.tariffClass,
+          },
+        });
+        setShowPayModal(true);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not start checkout';
+        Alert.alert('Checkout failed', msg);
+      } finally {
+        setPaying(false);
+      }
+    })();
   };
 
   const clearPlan = () => setDataState(s => ({ ...s, plan: null, tab: 'daily' }));
@@ -275,24 +351,60 @@ export function DataScreen({
         })}
 
         <Pressable
-          disabled={!canContinue}
-          onPress={() => canContinue && setShowPin(true)}
-          style={[styles.cta, !canContinue && styles.ctaDisabled]}
+          disabled={!canContinue || paying || showPayModal}
+          onPress={startPaystackCheckout}
+          style={[styles.cta, (!canContinue || paying || showPayModal) && styles.ctaDisabled]}
         >
-          <Text style={styles.ctaTxt}>
-            {canContinue && plan
-              ? `Buy ${network} ${plan.size} — ₦${plan.price.toLocaleString()}`
-              : 'Select a plan to continue'}
-          </Text>
+          {paying ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.ctaTxt}>
+              {plan && phone.length === 11 && !hasTariffCode
+                ? 'Load live prices to pay (plan code missing)'
+                : canContinue && plan
+                  ? `Buy ${network} ${plan.size} — ₦${plan.price.toLocaleString()}`
+                  : 'Select a plan and enter phone'}
+            </Text>
+          )}
         </Pressable>
       </ScrollView>
 
-      <PaymentPinModal
-        visible={showPin}
-        amountLabel={plan ? `₦${plan.price.toLocaleString()}` : '₦0'}
-        onDismiss={() => setShowPin(false)}
-        onConfirm={handleSuccess}
-      />
+      {payCheckout && plan ? (
+        <Paystack
+          visible={showPayModal}
+          paystackKey={PAYSTACK_PUBLIC_KEY}
+          amount={plan.price}
+          billingEmail={payCheckout.email}
+          reference={payCheckout.reference}
+          metadata={payCheckout.metadata}
+          onSuccess={async res => {
+            const ref = res?.reference?.trim() ? res.reference : payCheckout.reference;
+            setPaying(true);
+            try {
+              await completeDataPurchase({ reference: ref });
+              dismissPayModal();
+              onAddTx({
+                id: String(Date.now()),
+                type: 'data',
+                title: `Data — ${network} ${plan.size}`,
+                amount: `-₦${plan.price.toLocaleString()}`,
+                pts: `+${plan.pts} pts`,
+                date: 'Just now',
+                status: 'Successful',
+              });
+              onPurchaseComplete(plan.pts);
+            } catch (e) {
+              const msg =
+                e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete purchase';
+              Alert.alert('Purchase failed', msg);
+            } finally {
+              setPaying(false);
+            }
+          }}
+          onCancel={() => dismissPayModal()}
+          onRequestClose={dismissPayModal}
+        />
+      ) : null}
     </View>
   );
 }

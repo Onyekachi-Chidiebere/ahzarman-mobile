@@ -210,6 +210,7 @@ export function AhzarmanApp() {
           setDataState={setDataState}
           onAddTx={onAddTx}
           onPurchaseComplete={finishPurchase}
+          authUser={authUser}
         />
       ) : null}
       {screen === 'tv' ? (
