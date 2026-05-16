@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C } from '../constants';
 import { SERVICE_ITEMS, txMeta } from '../data';
 import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
@@ -43,9 +43,15 @@ export function HomeScreen({
   authUser?: AuthUser | null;
 }) {
   const firstName = authUser?.name?.trim().split(/\s+/)[0] ?? 'there';
+  const recent = transactions.slice(0, 4);
   return (
     <View style={styles.page}>
-      <View style={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+      >
         <View style={styles.topRow}>
           <View style={styles.avatar} />
           <View style={styles.topTextWrap}>
@@ -120,32 +126,35 @@ export function HomeScreen({
               <Text style={styles.link}>See all →</Text>
             </Pressable>
           </View>
-          <FlatList
-            data={transactions.slice(0, 4)}
-            keyExtractor={(t: Tx) => t.id}
-            ItemSeparatorComponent={() => <View style={styles.sep} />}
-            renderItem={({ item }) => (
-              <View style={styles.txRow}>
-                <View style={[styles.txAvatar, { backgroundColor: txMeta(item).bg }]}>
-                  <Text style={[styles.txAvatarIcon, { color: txMeta(item).fg }]}>{txMeta(item).icon}</Text>
+          {recent.length === 0 ? (
+            <Text style={styles.txEmpty}>No transactions yet. Buy airtime or electricity to see them here.</Text>
+          ) : (
+            recent.map((item, index) => (
+              <View key={item.id}>
+                {index > 0 ? <View style={styles.sep} /> : null}
+                <View style={styles.txRow}>
+                  <View style={[styles.txAvatar, { backgroundColor: txMeta(item).bg }]}>
+                    <Text style={[styles.txAvatarIcon, { color: txMeta(item).fg }]}>{txMeta(item).icon}</Text>
+                  </View>
+                  <View style={styles.txLeft}>
+                    <Text style={styles.txTitle}>{item.title}</Text>
+                    <Text style={styles.txSub}>{item.date}</Text>
+                  </View>
+                  <Text style={styles.txAmt}>{item.amount}</Text>
                 </View>
-                <View style={styles.txLeft}>
-                  <Text style={styles.txTitle}>{item.title}</Text>
-                  <Text style={styles.txSub}>{item.date}</Text>
-                </View>
-                <Text style={styles.txAmt}>{item.amount}</Text>
               </View>
-            )}
-          />
+            ))
+          )}
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#F8F9F6' },
-  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 90 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 100 },
   topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#E0E7AD' },
   topTextWrap: { flex: 1, marginLeft: 8 },
@@ -207,6 +216,7 @@ const styles = StyleSheet.create({
   promoBtnTxt: { color: C.ink, fontSize: 11, fontWeight: '600' },
   card: { marginTop: 16, backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14 },
   cardTitle: { color: C.ink, fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  txEmpty: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
   sep: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   txRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   txAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },

@@ -1,5 +1,6 @@
 import { apiRequest } from './client';
 import type { DataPlan, DataTab } from '../types';
+import type { TvPlan } from '../tvProviders';
 
 type TariffEnvelope = {
   success?: boolean;
@@ -212,4 +213,52 @@ export function parseTariffResponseToCatalog(raw: unknown): Record<DataTab, Data
     tabbed.monthly.sort((a, b) => a.price - b.price);
   }
   return tabbed;
+}
+
+function tariffRowToTvPlan(item: unknown, index: number): TvPlan | null {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const r = item as Record<string, unknown>;
+
+  const price = pickNumber(r, ['price', 'amount', 'Amount']);
+  const code = pickString(r, ['code', 'tariffClass', 'tariff_class', 'planCode']);
+  const desc = pickString(r, ['desc', 'description', 'name', 'title', 'label']);
+  const timeUnitRaw = pickString(r, ['timeUnit', 'time_unit']);
+  const durationNum = pickNumber(r, ['duration', 'Duration']);
+  const duration = durationNum != null && durationNum > 0 ? Math.round(durationNum) : 1;
+  const timeUnit = timeUnitRaw ? normalizeTimeUnit(timeUnitRaw) : null;
+
+  if (price == null || !Number.isFinite(price) || price < 0) return null;
+
+  const resolvedCode = code || `tv-${index}-${price}`;
+  const name = desc || code || 'TV plan';
+  const validity = timeUnit ? formatValidity(duration, timeUnit) : pickString(r, ['validity']) || '—';
+  const pts = Math.max(5, Math.round(price / 20));
+
+  return {
+    code: resolvedCode,
+    name,
+    price,
+    pts,
+    desc: '',
+    validity,
+  };
+}
+
+/** Flat TV (cable) plans from tariff API: `{ price, desc, code, timeUnit, duration }`. */
+export function parseTariffResponseToTvPlans(raw: unknown): TvPlan[] {
+  const envelope = raw && typeof raw === 'object' ? (raw as TariffEnvelope) : null;
+  const payload = envelope?.data !== undefined ? envelope.data : raw;
+  const nested =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).data ?? payload
+      : payload;
+
+  const rows = extractTariffRows(nested);
+  const plans: TvPlan[] = [];
+  rows.forEach((row, i) => {
+    const p = tariffRowToTvPlan(row, i);
+    if (p) plans.push(p);
+  });
+  plans.sort((a, b) => a.price - b.price);
+  return plans;
 }

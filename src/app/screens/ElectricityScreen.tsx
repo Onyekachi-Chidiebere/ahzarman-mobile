@@ -13,6 +13,11 @@ import {
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ApiError } from '../api/client';
 import { checkElectricityMeter } from '../api/electricity';
+import {
+  mapMeterCheckToCustomerName,
+  mergeMeterPayload,
+  meterVerifyErrorMessage,
+} from '../api/meterCheck';
 import type { AuthUser } from '../api/auth';
 import { completeElectricityPurchase, initializeElectricityPurchase } from '../api/electricityPurchase';
 import { PAYSTACK_PUBLIC_KEY } from '../config';
@@ -25,17 +30,6 @@ import { Paystack } from './ElectricityPaystackModal';
 
 const grey = C.muted;
 
-function mergeMeterPayload(data: unknown): Record<string, unknown> {
-  if (!data || typeof data !== 'object') return {};
-  const root = data as Record<string, unknown>;
-  const nested = root.data ?? root.result ?? root.meterInfo ?? root.payload;
-  const out = { ...root };
-  if (nested && typeof nested === 'object' && nested !== null) {
-    Object.assign(out, nested as Record<string, unknown>);
-  }
-  return out;
-}
-
 function pickString(obj: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
     const v = obj[k];
@@ -46,16 +40,7 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string {
 
 function mapMeterCheckToCustomer(data: unknown): { name: string; address: string; min: string } | null {
   const flat = mergeMeterPayload(data);
-  const name = pickString(flat, [
-    'customerName',
-    'customer_name',
-    'name',
-    'fullName',
-    'meterOwner',
-    'customer',
-    'accountName',
-    'AccountName',
-  ]);
+  const name = mapMeterCheckToCustomerName(data);
   const address = pickString(flat, [
     'address',
     'customerAddress',
@@ -67,22 +52,6 @@ function mapMeterCheckToCustomer(data: unknown): { name: string; address: string
   const min = pickString(flat, ['minVendAmount', 'minAmount', 'minimum', 'minimumAmount']);
   if (!name && !address) return null;
   return { name: name || 'Customer', address: address || '—', min: min || '500' };
-}
-
-function meterVerifyErrorMessage(e: unknown): string {
-  if (e instanceof ApiError) {
-    const b = e.body as Record<string, unknown> | undefined;
-    if (b && typeof b === 'object') {
-      if (typeof b.message === 'string' && b.message) return b.message;
-      const err = b.error;
-      if (typeof err === 'string' && err) return err;
-      if (err && typeof err === 'object' && 'message' in err && typeof (err as { message?: string }).message === 'string') {
-        return (err as { message: string }).message;
-      }
-    }
-    return e.message;
-  }
-  return 'Could not verify meter. Check your connection and try again.';
 }
 
 export function ElectricityScreen({
@@ -133,7 +102,9 @@ export function ElectricityScreen({
           });
         }
       } catch (e) {
-        setVerifyError(meterVerifyErrorMessage(e));
+        setVerifyError(
+          meterVerifyErrorMessage(e, 'Could not verify meter. Check your connection and try again.'),
+        );
       } finally {
         setVerifying(false);
       }

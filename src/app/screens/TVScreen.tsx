@@ -1,13 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { PaymentPinModal, ScreenHeader } from '../components';
 import { C } from '../constants';
-import { TV_PROVIDERS } from '../tvProviders';
+import { getDataTariffPriceList, parseTariffResponseToTvPlans } from '../api/dataTariffs';
+import { checkBuyPowerMeter, mapMeterCheckToCustomerName, meterVerifyErrorMessage } from '../api/meterCheck';
+import type { TvPlan, TvProviderId } from '../tvProviders';
+import { TV_PROVIDERS, TV_TARIFF_PROVIDER } from '../tvProviders';
 import type { AppScreen, Tx } from '../types';
 
 const grey = C.muted;
-const PROVIDER_KEYS = Object.keys(TV_PROVIDERS) as Array<keyof typeof TV_PROVIDERS>;
+const PROVIDER_KEYS = Object.keys(TV_PROVIDERS) as TvProviderId[];
+
+function planSubtitle(p: TvPlan) {
+  return [p.desc, p.validity].filter(Boolean).join(' · ');
+}
 
 export function TVScreen({
   goTo,
@@ -18,23 +25,77 @@ export function TVScreen({
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pts: number) => void;
 }) {
-  const [provider, setProvider] = useState<(typeof PROVIDER_KEYS)[number]>('DStv');
-  const [plan, setPlan] = useState<(typeof TV_PROVIDERS)['DStv']['plans'][0] | null>(null);
+  const [provider, setProvider] = useState<TvProviderId>('DStv');
+  const [plan, setPlan] = useState<TvPlan | null>(null);
+  const [plans, setPlans] = useState<TvPlan[]>(() => TV_PROVIDERS.DStv.plans);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansBanner, setPlansBanner] = useState<string | null>(null);
   const [decoder, setDecoder] = useState('');
   const [verifyingDec, setVerifyingDec] = useState(false);
   const [verifiedDec, setVerifiedDec] = useState<{ name: string } | null>(null);
+  const [verifyDecError, setVerifyDecError] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
 
-  const plans = TV_PROVIDERS[provider].plans;
+  useEffect(() => {
+    let cancelled = false;
+    const fallback = TV_PROVIDERS[provider].plans;
+    const apiProvider = TV_TARIFF_PROVIDER[provider];
+
+    setPlansLoading(true);
+    setPlansBanner(null);
+    setPlan(null);
+
+    (async () => {
+      try {
+        const res = await getDataTariffPriceList('TV', apiProvider);
+        const parsed = parseTariffResponseToTvPlans(res);
+        if (cancelled) return;
+        if (parsed.length) {
+          setPlans(parsed);
+        } else {
+          setPlans(fallback);
+          setPlansBanner('No live plans; showing saved list.');
+        }
+      } catch {
+        if (cancelled) return;
+        setPlans(fallback);
+        setPlansBanner('Could not load plans; showing saved list.');
+      } finally {
+        if (!cancelled) setPlansLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   const handleVerifyDec = () => {
     if (decoder.length < 5) return;
     setVerifyingDec(true);
     setVerifiedDec(null);
-    setTimeout(() => {
-      setVerifyingDec(false);
-      setVerifiedDec({ name: 'MERCY OKAFOR' });
-    }, 1800);
+    setVerifyDecError(null);
+    void (async () => {
+      try {
+        const res = await checkBuyPowerMeter({
+          meter: decoder,
+          disco: TV_TARIFF_PROVIDER[provider],
+          vendType: 'PREPAID',
+        });
+        const name = mapMeterCheckToCustomerName(res.data);
+        if (name) {
+          setVerifiedDec({ name });
+        } else {
+          setVerifiedDec({ name: 'Decoder verified' });
+        }
+      } catch (e) {
+        setVerifyDecError(
+          meterVerifyErrorMessage(e, 'Could not verify decoder. Check the number and try again.'),
+        );
+      } finally {
+        setVerifyingDec(false);
+      }
+    })();
   };
 
   const handleSuccess = () => {
@@ -66,6 +127,7 @@ export function TVScreen({
                 setPlan(null);
                 setDecoder('');
                 setVerifiedDec(null);
+                setVerifyDecError(null);
               }}
               style={[
                 styles.pchip,
@@ -87,6 +149,7 @@ export function TVScreen({
               onChangeText={v => {
                 setDecoder(v.replace(/\D/g, '').slice(0, 12));
                 setVerifiedDec(null);
+                setVerifyDecError(null);
               }}
               placeholder="Enter decoder / smart card number"
               placeholderTextColor={C.placeholder}
@@ -131,13 +194,21 @@ export function TVScreen({
             <Text style={styles.pendingTxt}>Verifying decoder…</Text>
           </View>
         ) : null}
+        {verifyDecError ? <Text style={styles.verifyErr}>{verifyDecError}</Text> : null}
 
         <Text style={styles.label}>{provider} PLANS</Text>
+        {plansLoading ? (
+          <View style={styles.pending}>
+            <ActivityIndicator size="small" color={grey} />
+            <Text style={styles.pendingTxt}>Loading plans…</Text>
+          </View>
+        ) : null}
+        {plansBanner ? <Text style={styles.banner}>{plansBanner}</Text> : null}
         {plans.map(p => {
-          const sel = plan?.name === p.name;
+          const sel = plan?.code === p.code;
           return (
             <Pressable
-              key={p.name}
+              key={p.code}
               disabled={!verifiedDec}
               onPress={() => verifiedDec && setPlan(p)}
               style={[
@@ -148,9 +219,7 @@ export function TVScreen({
             >
               <View>
                 <Text style={styles.planName}>{p.name}</Text>
-                <Text style={styles.planDesc}>
-                  {p.desc} · Monthly
-                </Text>
+                <Text style={styles.planDesc}>{planSubtitle(p)}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={styles.planPrice}>₦{p.price.toLocaleString()}</Text>
@@ -242,6 +311,8 @@ const styles = StyleSheet.create({
   okSub: { fontSize: 11, color: C.success, opacity: 0.85, marginTop: 4 },
   pending: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pendingTxt: { fontSize: 12, color: grey },
+  banner: { fontSize: 11, color: C.placeholder, marginBottom: 4 },
+  verifyErr: { fontSize: 12, color: C.error, marginTop: 4, marginBottom: 4 },
   planCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
