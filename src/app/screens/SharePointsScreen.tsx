@@ -6,7 +6,6 @@ import { C } from '../constants';
 import type { AppScreen } from '../types';
 
 const grey = C.muted;
-const MAX_PTS = 1850;
 
 const CONTACTS = [
   { name: 'Mum', phone: '08034567890' },
@@ -14,7 +13,15 @@ const CONTACTS = [
   { name: 'Ahmed', phone: '07055443322' },
 ];
 
-export function SharePointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+export function SharePointsScreen({
+  goTo,
+  userPoints,
+  onSpendPoints,
+}: {
+  goTo: (s: AppScreen) => void;
+  userPoints: number;
+  onSpendPoints: (title: string, amount: number) => void;
+}) {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
@@ -23,9 +30,10 @@ export function SharePointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [done, setDone] = useState(false);
 
   const ptsNum = parseInt(pts || '0', 10);
-  const valid = phone.length === 11 && ptsNum >= 10 && ptsNum <= MAX_PTS;
+  const valid = phone.length === 11 && ptsNum >= 10 && ptsNum <= userPoints;
 
   const handleSuccess = () => {
+    onSpendPoints(`Shared points — ${name || phone}`, ptsNum);
     setShowPin(false);
     setDone(true);
   };
@@ -52,7 +60,7 @@ export function SharePointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           </Text>
         </View>
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceBig}>{(MAX_PTS - ptsNum).toLocaleString()} pts</Text>
+          <Text style={styles.balanceBig}>{(userPoints - ptsNum).toLocaleString()} pts</Text>
           <Text style={styles.balanceLbl}>Your remaining balance</Text>
         </View>
         <Pressable onPress={() => goTo('home')} style={styles.primaryBtn}>
@@ -70,11 +78,11 @@ export function SharePointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           <View>
             <Text style={styles.heroLbl}>Available to share</Text>
             <Text style={styles.heroAmt}>
-              1,850 <Text style={styles.heroPts}>pts</Text>
+              {userPoints.toLocaleString()} <Text style={styles.heroPts}>pts</Text>
             </Text>
           </View>
           <View style={styles.heroPill}>
-            <Text style={styles.heroPillTxt}>= ₦1,850</Text>
+            <Text style={styles.heroPillTxt}>= ₦{userPoints.toLocaleString()}</Text>
           </View>
         </View>
 
@@ -133,10 +141,10 @@ export function SharePointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           keyboardType="number-pad"
         />
         <Text style={styles.hint}>
-          Min 10 pts · Max {MAX_PTS.toLocaleString()} pts
-          {ptsNum > MAX_PTS ? <Text style={{ color: C.error }}> — Not enough points</Text> : null}
+          Min 10 pts · Max {userPoints.toLocaleString()} pts
+          {ptsNum > userPoints ? <Text style={{ color: C.error }}> — Not enough points</Text> : null}
         </Text>
-        {pts && ptsNum >= 10 && ptsNum <= MAX_PTS ? (
+        {pts && ptsNum >= 10 && ptsNum <= userPoints ? (
           <View style={styles.convBox}>
             <Text style={styles.convTxt}>= ₦{ptsNum.toLocaleString()} electricity credit for recipient</Text>
           </View>

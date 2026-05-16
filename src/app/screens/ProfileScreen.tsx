@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { AuthUser } from '../api/auth';
+import { getTierForBalance } from '../points';
 import type { AppScreen, Estate } from '../types';
 import UserIcon from '../assets/icons/user.svg';
 import UsersIcon from '../assets/icons/users.svg';
@@ -15,11 +16,14 @@ export function ProfileScreen({
   goTo,
   userEstate,
   authUser,
+  userPoints,
 }: {
   goTo: (s: AppScreen) => void;
   userEstate: Estate | null;
   authUser?: AuthUser | null;
+  userPoints: number;
 }) {
+  const { tier } = getTierForBalance(userPoints);
   const baseRows = [
     { label: 'Personal Info', sub: 'Name, email, phone', screen: 'personal_info' as const, icon: <UserIcon /> },
     { label: 'Security', sub: 'Change PIN, password', screen: 'security' as const, icon: <LockIcon /> },
@@ -66,7 +70,9 @@ export function ProfileScreen({
             <Text style={styles.name}>{authUser?.name?.trim() || 'Ahzarman user'}</Text>
             <Text style={styles.email}>{authUser?.email ?? ''}</Text>
             <View style={styles.pill}>
-              <Text style={styles.pillTxt}>Silver · 1,850 pts</Text>
+              <Text style={styles.pillTxt}>
+                {tier.name} · {userPoints.toLocaleString()} pts
+              </Text>
             </View>
           </View>
         </View>

@@ -16,6 +16,7 @@ import { completeAirtimePurchase, initializeAirtimePurchase } from '../api/airti
 import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { formatPointsEarned, pointsForAmount } from '../points';
 import type { AppScreen, Beneficiary, Tx } from '../types';
 import { Paystack } from './ElectricityPaystackModal';
 
@@ -50,10 +51,6 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       <View style={[styles.toggleKnob, value ? { marginLeft: 18 } : { marginLeft: 0 }]} />
     </Pressable>
   );
-}
-
-function pointsForAmount(amt: number) {
-  return Math.max(5, Math.round(amt / 20));
 }
 
 export function AirtimeScreen({
@@ -160,7 +157,7 @@ export function AirtimeScreen({
       type: 'airtime',
       title: `Airtime — ${network}`,
       amount: `-₦${finalAmt.toLocaleString()}`,
-      pts: `+${pts} pts`,
+      pts: formatPointsEarned(pts),
       date: 'Just now',
       status: 'Successful',
     });

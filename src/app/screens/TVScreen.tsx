@@ -9,6 +9,7 @@ import type { AuthUser } from '../api/auth';
 import { ApiError } from '../api/client';
 import { completeTvPurchase, initializeTvPurchase } from '../api/tvPurchase';
 import { PAYSTACK_PUBLIC_KEY } from '../config';
+import { formatPointsEarned, pointsForAmount } from '../points';
 import type { TvPlan, TvProviderId } from '../tvProviders';
 import { TV_PROVIDERS, TV_TARIFF_PROVIDER } from '../tvProviders';
 import type { AppScreen, Tx } from '../types';
@@ -96,7 +97,7 @@ export function TVScreen({
   const handlePaystackSuccess = async (res: { reference?: string }) => {
     if (!payCheckout || !plan) return;
     const ref = res?.reference?.trim() ? res.reference : payCheckout.reference;
-    const pts = plan.pts;
+    const pts = pointsForAmount(plan.price);
     setCompletingVend(true);
     try {
       const result = await completeTvPurchase({ reference: ref });
@@ -110,7 +111,7 @@ export function TVScreen({
         type: 'tv',
         title: `${provider} ${plan.name}`,
         amount: `-₦${plan.price.toLocaleString()}`,
-        pts: `+${pts} pts`,
+        pts: formatPointsEarned(pts),
         date: 'Just now',
         status: 'Successful',
       });

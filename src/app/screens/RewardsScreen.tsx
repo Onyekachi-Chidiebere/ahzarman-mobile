@@ -3,68 +3,52 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
-import type { AppScreen, Estate } from '../types';
+import {
+  getTierForBalance,
+  POINTS_TIERS,
+  pointsHistoryFromTransactions,
+} from '../points';
+import type { AppScreen, Estate, Tx } from '../types';
 
 const grey = C.muted;
 
-const TIERS = [
-  {
-    name: 'Bronze',
-    pts: '0–999',
-    col: '#CD7F32',
-    active: false,
-    benefits: ['5% points bonus', 'Basic services', 'Monthly statement'],
-  },
-  {
-    name: 'Silver',
-    pts: '1,000–4,999',
-    col: '#A8A9AD',
-    active: true,
-    benefits: [
-      '10% points bonus',
-      'Priority support',
-      'Electricity token in 5s',
-      'Points gifting enabled',
-    ],
-  },
-  {
-    name: 'Gold',
-    pts: '5,000–14,999',
-    col: '#D4AF37',
-    active: false,
-    benefits: ['20% points bonus', 'Account manager', 'Zero service fees', 'Exclusive promos'],
-  },
-  {
-    name: 'Platinum',
-    pts: '15,000+',
-    col: '#2E8B57',
-    active: false,
-    benefits: ['30% points bonus', 'Free monthly airtime', 'Zero fees forever', 'VIP support'],
-  },
-] as const;
-
-const POINTS_HIST = [
-  { type: 'electricity' as const, action: 'Electricity payment', pts: '+250 pts', date: 'Today' },
-  { type: 'airtime' as const, action: 'Referred Tunde', pts: '+500 pts', date: 'Yesterday' },
-  { type: 'airtime' as const, action: 'Airtime purchase', pts: '+30 pts', date: '2 days ago' },
-];
-
-const HIST_ICON: Record<(typeof POINTS_HIST)[number]['type'], string> = {
+const HIST_ICON: Record<string, string> = {
   electricity: '⚡',
   airtime: '📞',
+  data: '📡',
+  tv: '📺',
+  giftcard: '🎁',
+  flights: '✈️',
+  betting: '⚽',
+  esim: '📶',
+  points: '🏆',
+  refund: '↩',
 };
 
 export function RewardsScreen({
   goTo,
   userEstate,
   estatePoints,
+  userPoints,
+  transactions,
 }: {
   goTo: (s: AppScreen) => void;
   userEstate: Estate | null;
   estatePoints: number;
+  userPoints: number;
+  transactions: Tx[];
 }) {
   const [selTier, setSelTier] = useState<number | null>(null);
-  const displayed = selTier !== null ? TIERS[selTier] : null;
+  const { tier, tierIndex, pointsToNextTier, progressInTier } = getTierForBalance(userPoints);
+  const tiersForUi = POINTS_TIERS.map((t, i) => ({
+    name: t.name,
+    pts: t.max != null ? `${t.min.toLocaleString()}–${t.max.toLocaleString()}` : `${t.min.toLocaleString()}+`,
+    col: t.color,
+    active: i === tierIndex,
+    benefits: t.benefits,
+  }));
+  const displayed = selTier !== null ? tiersForUi[selTier] : null;
+  const pointsHist = pointsHistoryFromTransactions(transactions);
   const myShare = estatePoints > 0 ? estatePoints : 185;
   const poolDisplay = 24810 + estatePoints;
 
@@ -74,10 +58,13 @@ export function RewardsScreen({
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.rewCard}>
           <Text style={styles.rewLabel}>YOUR POINTS</Text>
-          <Text style={styles.rewBig}>1,850 pts</Text>
-          <Text style={styles.rewSub}>Silver tier · 3,150 pts to Gold</Text>
+          <Text style={styles.rewBig}>{userPoints.toLocaleString()} pts</Text>
+          <Text style={styles.rewSub}>
+            {tier.name} tier
+            {pointsToNextTier != null ? ` · ${pointsToNextTier.toLocaleString()} pts to next tier` : ' · top tier'}
+          </Text>
           <View style={styles.rewBar}>
-            <View style={styles.rewBarFill} />
+            <View style={[styles.rewBarFill, { width: `${Math.round(progressInTier * 100)}%` }]} />
           </View>
           <View style={styles.actions}>
             <Pressable onPress={() => goTo('share_points')} style={styles.primaryBtn}>
@@ -150,7 +137,7 @@ export function RewardsScreen({
         <View style={styles.tierSection}>
           <Text style={styles.tierHint}>Tap a tier to see benefits</Text>
           <View style={styles.tierRow}>
-            {TIERS.map((t, i) => {
+            {tiersForUi.map((t, i) => {
               const on = t.active || selTier === i;
               return (
                 <Pressable
@@ -200,13 +187,16 @@ export function RewardsScreen({
 
         <View style={styles.histCard}>
           <Text style={styles.histTitle}>Points History</Text>
-          {POINTS_HIST.map((h, i) => (
+          {pointsHist.length === 0 ? (
+            <Text style={styles.histEmpty}>Complete a purchase to earn points.</Text>
+          ) : null}
+          {pointsHist.map((h, i) => (
             <View
-              key={h.action}
-              style={[styles.histRow, i < POINTS_HIST.length - 1 && styles.histRowSep]}
+              key={`${h.action}-${i}`}
+              style={[styles.histRow, i < pointsHist.length - 1 && styles.histRowSep]}
             >
               <View style={styles.histAv}>
-                <Text style={styles.histAvTxt}>{HIST_ICON[h.type]}</Text>
+                <Text style={styles.histAvTxt}>{HIST_ICON[h.type] ?? '🏆'}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.histAction}>{h.action}</Text>
@@ -341,6 +331,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   histTitle: { fontSize: 14, fontWeight: '600', color: C.textColor, marginBottom: 14 },
+  histEmpty: { fontSize: 13, color: grey },
   histRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   histRowSep: { paddingBottom: 14, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border },
   histAv: {

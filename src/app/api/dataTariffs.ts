@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { pointsForAmount } from '../points';
 import type { DataPlan, DataTab } from '../types';
 import type { TvPlan } from '../tvProviders';
 
@@ -117,7 +118,7 @@ function tariffRowToPlan(item: unknown, index: number): DataPlan | null {
   const id = code || `tariff-${index}-${price}`;
   const size = desc || code || 'Data bundle';
   const validity = timeUnit ? formatValidity(duration, timeUnit) : pickString(r, ['validity']) || '—';
-  const pts = Math.max(5, Math.round(price / 20));
+  const pts = pointsForAmount(price);
 
   const plan: DataPlan = {
     id,
@@ -232,7 +233,7 @@ function tariffRowToTvPlan(item: unknown, index: number): TvPlan | null {
   const resolvedCode = code || `tv-${index}-${price}`;
   const name = desc || code || 'TV plan';
   const validity = timeUnit ? formatValidity(duration, timeUnit) : pickString(r, ['validity']) || '—';
-  const pts = Math.max(5, Math.round(price / 20));
+  const pts = pointsForAmount(price);
 
   return {
     code: resolvedCode,

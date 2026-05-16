@@ -4,6 +4,7 @@ import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native'
 import { fetchMe, type AuthUser } from './app/api/auth';
 import { C } from './app/constants';
 import { SAMPLE_TXS } from './app/data';
+import { computeBalanceFromTransactions, parsePtsFromTx } from './app/points';
 import { BottomNav } from './app/components';
 import {
   AirtimeScreen,
@@ -40,6 +41,7 @@ import {
 import type { AppScreen, Beneficiary, DataState, ElecPurchaseSummary, Estate, Tx } from './app/types';
 
 const AUTH_TOKEN_KEY = 'auth_token';
+const POINTS_BALANCE_KEY = 'points_balance';
 
 export function AhzarmanApp() {
   const [booting, setBooting] = useState(true);
@@ -58,6 +60,7 @@ export function AhzarmanApp() {
     phone: '',
   });
   const [successPts, setSuccessPts] = useState(30);
+  const [userPoints, setUserPoints] = useState(() => computeBalanceFromTransactions(SAMPLE_TXS));
   const [userEstate, setUserEstate] = useState<Estate | null>(null);
   const [estatePoints, setEstatePoints] = useState(0);
   const [elecSuccessSummary, setElecSuccessSummary] = useState<ElecPurchaseSummary | null>(null);
@@ -84,6 +87,12 @@ export function AhzarmanApp() {
     };
   }, []);
 
+  useEffect(() => {
+    const balance = computeBalanceFromTransactions(transactions);
+    setUserPoints(balance);
+    void AsyncStorage.setItem(POINTS_BALANCE_KEY, String(balance));
+  }, [transactions]);
+
   const onAuthSuccess = async (token: string, user: AuthUser) => {
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
     setAuthUser(user);
@@ -93,10 +102,23 @@ export function AhzarmanApp() {
 
   const onAddTx = (tx: Tx) => {
     setTransactions(prev => [tx, ...prev]);
-    if (userEstate && tx.pts) {
-      const n = parseInt((tx.pts || '').replace(/\D/g, ''), 10) || 0;
-      if (n > 0) setEstatePoints(p => p + Math.floor(n * 0.1));
+    if (userEstate && tx.status === 'Successful') {
+      const earned = parsePtsFromTx(tx.pts);
+      if (earned > 0) setEstatePoints(p => p + Math.floor(earned * 0.1));
     }
+  };
+
+  const recordPointsSpend = (title: string, amount: number) => {
+    if (amount <= 0) return;
+    onAddTx({
+      id: String(Date.now()),
+      type: 'points',
+      title,
+      amount: '',
+      pts: `-${amount} pts`,
+      date: 'Just now',
+      status: 'Successful',
+    });
   };
   const showBottomNav = ['home', 'services', 'rewards', 'profile'].includes(screen);
 
@@ -154,14 +176,21 @@ export function AhzarmanApp() {
           transactions={transactions}
           userEstate={userEstate}
           authUser={authUser}
+          userPoints={userPoints}
         />
       ) : null}
       {screen === 'services' ? <ServicesScreen goTo={goTo} /> : null}
       {screen === 'rewards' ? (
-        <RewardsScreen goTo={goTo} userEstate={userEstate} estatePoints={estatePoints} />
+        <RewardsScreen
+          goTo={goTo}
+          userEstate={userEstate}
+          estatePoints={estatePoints}
+          userPoints={userPoints}
+          transactions={transactions}
+        />
       ) : null}
       {screen === 'profile' ? (
-        <ProfileScreen goTo={goTo} userEstate={userEstate} authUser={authUser} />
+        <ProfileScreen goTo={goTo} userEstate={userEstate} authUser={authUser} userPoints={userPoints} />
       ) : null}
 
       {screen === 'notifications' ? <NotificationsScreen goTo={goTo} fromProfile={false} /> : null}
@@ -169,8 +198,12 @@ export function AhzarmanApp() {
         <NotificationsScreen goTo={goTo} fromProfile />
       ) : null}
       {screen === 'history' ? <HistoryScreen goTo={goTo} transactions={transactions} /> : null}
-      {screen === 'share_points' ? <SharePointsScreen goTo={goTo} /> : null}
-      {screen === 'redeem_points' ? <RedeemPointsScreen goTo={goTo} /> : null}
+      {screen === 'share_points' ? (
+        <SharePointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
+      ) : null}
+      {screen === 'redeem_points' ? (
+        <RedeemPointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
+      ) : null}
       {screen === 'refer' ? <ReferScreen goTo={goTo} goBack={goBack} /> : null}
       {screen === 'estate_account' ? (
         <EstateAccountScreen
@@ -234,7 +267,9 @@ export function AhzarmanApp() {
       {screen === 'esim' ? (
         <ESIMScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
       ) : null}
-      {screen === 'success_simple' ? <SuccessSimpleScreen goTo={goTo} pts={successPts} /> : null}
+      {screen === 'success_simple' ? (
+        <SuccessSimpleScreen goTo={goTo} pts={successPts} userPoints={userPoints} />
+      ) : null}
       {screen === 'contact_us' ? <ContactUsScreen goTo={goTo} /> : null}
       {screen === 'payment_settings' ? <PaymentSettingsScreen goTo={goTo} /> : null}
       {screen === 'beneficiaries' ? (

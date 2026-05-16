@@ -36,11 +36,13 @@ export function HomeScreen({
   transactions,
   userEstate,
   authUser,
+  userPoints,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
   userEstate: Estate | null;
   authUser?: AuthUser | null;
+  userPoints: number;
 }) {
   const firstName = authUser?.name?.trim().split(/\s+/)[0] ?? 'there';
   const recent = transactions.slice(0, 4);
@@ -65,8 +67,10 @@ export function HomeScreen({
 
         <View style={styles.pointsCard}>
           <Text style={styles.pointsLabel}>AHZARMAN POINTS</Text>
-          <Text style={styles.pointsBig}>1,850 pts</Text>
-          <Text style={styles.pointsSub}>= ₦1,850 electricity credit · shareable</Text>
+          <Text style={styles.pointsBig}>{userPoints.toLocaleString()} pts</Text>
+          <Text style={styles.pointsSub}>
+            = ₦{userPoints.toLocaleString()} electricity credit · shareable
+          </Text>
           <View style={styles.pointsActions}>
             <Pressable onPress={() => goTo('share_points')} style={styles.pointsPrimaryBtn}><Text style={styles.pointsPrimaryBtnTxt}>Share Points</Text></Pressable>
             <Pressable onPress={() => goTo('redeem_points')} style={styles.pointsGhostBtn}><Text style={styles.pointsGhostBtnTxt}>Redeem</Text></Pressable>

@@ -9,9 +9,11 @@ const grey = C.muted;
 export function SuccessSimpleScreen({
   goTo,
   pts = 30,
+  userPoints = 0,
 }: {
   goTo: (s: AppScreen) => void;
   pts?: number;
+  userPoints?: number;
 }) {
   const [count, setCount] = useState(4);
   const goToRef = useRef(goTo);
@@ -52,6 +54,7 @@ export function SuccessSimpleScreen({
       <View style={styles.ptsCard}>
         <Text style={styles.ptsBig}>+{pts} pts</Text>
         <Text style={styles.ptsLabel}>Points earned</Text>
+        <Text style={styles.ptsBalance}>New balance: {userPoints.toLocaleString()} pts</Text>
       </View>
       <Pressable onPress={() => goTo('home')} style={styles.btn}>
         <Text style={styles.btnTxt}>Back to Home</Text>
@@ -100,6 +103,7 @@ const styles = StyleSheet.create({
   },
   ptsBig: { fontSize: 28, fontWeight: '700', color: C.olive },
   ptsLabel: { fontSize: 12, color: C.olive, marginTop: 4 },
+  ptsBalance: { fontSize: 13, fontWeight: '600', color: C.ink, marginTop: 10 },
   btn: {
     width: '100%',
     height: 50,

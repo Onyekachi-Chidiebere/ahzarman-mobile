@@ -23,6 +23,7 @@ import { completeElectricityPurchase, initializeElectricityPurchase } from '../a
 import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { formatPointsEarned, pointsForAmount } from '../points';
 import type { Disco } from '../discos';
 import { ELECTRICITY_DISCOS } from '../discos';
 import type { AppScreen, ElecPurchaseSummary, Tx } from '../types';
@@ -381,12 +382,13 @@ export function ElectricityScreen({
                 discoName: disco.name,
                 meter,
               });
+              const elecPts = pointsForAmount(amtNum);
               onAddTx({
                 id: String(Date.now()),
                 type: 'electricity',
                 title: `Electricity — ${disco.id}`,
                 amount: `-₦${amtNum.toLocaleString()}`,
-                pts: '+250 pts',
+                pts: formatPointsEarned(elecPts),
                 date: 'Just now',
                 status: 'Successful',
               });

@@ -17,6 +17,7 @@ import { getDataTariffPriceList, parseTariffResponseToCatalog } from '../api/dat
 import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { formatPointsEarned } from '../points';
 import { DATA_PLANS } from '../dataPlans';
 import type { AppScreen, DataPlan, DataState, DataTab, Tx } from '../types';
 import { Paystack } from './ElectricityPaystackModal';
@@ -388,7 +389,7 @@ export function DataScreen({
                 type: 'data',
                 title: `Data — ${network} ${plan.size}`,
                 amount: `-₦${plan.price.toLocaleString()}`,
-                pts: `+${plan.pts} pts`,
+                pts: formatPointsEarned(plan.pts),
                 date: 'Just now',
                 status: 'Successful',
               });

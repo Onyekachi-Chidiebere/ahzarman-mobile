@@ -7,9 +7,16 @@ import { NumPad } from '../NumPad';
 import type { AppScreen } from '../types';
 
 const grey = C.muted;
-const MAX_PTS = 1850;
 
-export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
+export function RedeemPointsScreen({
+  goTo,
+  userPoints,
+  onSpendPoints,
+}: {
+  goTo: (s: AppScreen) => void;
+  userPoints: number;
+  onSpendPoints: (title: string, amount: number) => void;
+}) {
   const [meter, setMeter] = useState('');
   const [pts, setPts] = useState('');
   const [showPin, setShowPin] = useState(false);
@@ -19,7 +26,7 @@ export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
 
   const ptsNum = parseInt(pts || '0', 10);
   const nairaVal = ptsNum;
-  const valid = meter.length >= 11 && ptsNum >= 100 && ptsNum <= MAX_PTS;
+  const valid = meter.length >= 11 && ptsNum >= 100 && ptsNum <= userPoints;
 
   const handleDigit = (d: string) => {
     if (pin.length >= 4) return;
@@ -29,6 +36,7 @@ export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
     if (next.length === 4) {
       if (next === '1234') {
         setTimeout(() => {
+          onSpendPoints(`Redeemed for electricity — ${meter}`, ptsNum);
           setShowPin(false);
           setDone(true);
           setPin('');
@@ -73,7 +81,7 @@ export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           </Text>
         </View>
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceBig}>{(MAX_PTS - ptsNum).toLocaleString()} pts</Text>
+          <Text style={styles.balanceBig}>{(userPoints - ptsNum).toLocaleString()} pts</Text>
           <Text style={styles.balanceLbl}>Your remaining balance</Text>
         </View>
         <Pressable onPress={() => goTo('home')} style={styles.primaryBtn}>
@@ -91,11 +99,11 @@ export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           <View>
             <Text style={styles.heroLbl}>Points balance</Text>
             <Text style={styles.heroAmt}>
-              1,850 <Text style={styles.heroPts}>pts</Text>
+              {userPoints.toLocaleString()} <Text style={styles.heroPts}>pts</Text>
             </Text>
           </View>
           <View style={styles.heroPill}>
-            <Text style={styles.heroPillTxt}>= ₦1,850</Text>
+            <Text style={styles.heroPillTxt}>= ₦{userPoints.toLocaleString()}</Text>
           </View>
         </View>
 
@@ -126,11 +134,11 @@ export function RedeemPointsScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
           keyboardType="number-pad"
         />
         <Text style={styles.hint}>
-          Min 100 pts · Max 1,850 pts
-          {ptsNum > MAX_PTS ? <Text style={{ color: C.error }}> — Insufficient balance</Text> : null}
+          Min 100 pts · Max {userPoints.toLocaleString()} pts
+          {ptsNum > userPoints ? <Text style={{ color: C.error }}> — Insufficient balance</Text> : null}
         </Text>
 
-        {ptsNum >= 100 && ptsNum <= MAX_PTS ? (
+        {ptsNum >= 100 && ptsNum <= userPoints ? (
           <View style={styles.previewBox}>
             <Text style={styles.previewTxt}>
               You will receive <Text style={{ fontWeight: '700' }}>₦{nairaVal.toLocaleString()}</Text> electricity
