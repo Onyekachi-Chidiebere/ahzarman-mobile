@@ -10,11 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import {
-  generatePaystackParams,
-  handlePaystackMessage,
-  paystackHtmlContent,
-} from 'react-native-paystack-webview/production/lib/utils';
+import { generatePaystackParams, paystackHtmlContent } from 'react-native-paystack-webview/production/lib/utils';
 import type {
   Currency,
   PaystackTransactionResponse,
@@ -37,7 +33,7 @@ export type ElectricityPaystackModalProps = {
   currency?: Currency;
   channels?: PaymentChannels;
   debug?: boolean;
-  onSuccess: (res: PaystackTransactionResponse) => void;
+  onSuccess: (res: PaystackTransactionResponse) => void | Promise<void>;
   onCancel?: (e: { status: string }) => void;
   /** Called when the sheet should close (success, cancel, close button, or hardware back). */
   onRequestClose: () => void;
@@ -111,14 +107,40 @@ export function ElectricityPaystackModal({
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      handlePaystackMessage({
-        event,
-        debug,
-        params: paramsRef.current,
-        close,
-      });
+      try {
+        const data = JSON.parse(event.nativeEvent.data) as {
+          event?: string;
+          data?: PaystackTransactionResponse;
+          error?: { message?: string };
+        };
+        if (debug) console.log('[Paystack] message', data);
+        switch (data.event) {
+          case 'success':
+            void (async () => {
+              try {
+                await Promise.resolve(paramsRef.current.onSuccess(data.data as PaystackTransactionResponse));
+              } finally {
+                close();
+              }
+            })();
+            break;
+          case 'cancel':
+            paramsRef.current.onCancel();
+            close();
+            break;
+          case 'error':
+            if (debug) console.warn('[Paystack] error', data.error);
+            onCancel?.({ status: 'error' });
+            close();
+            break;
+          default:
+            break;
+        }
+      } catch (e) {
+        if (debug) console.warn('[Paystack] message parse error', e);
+      }
     },
-    [close, debug],
+    [close, debug, onCancel],
   );
 
   const headerClose = () => {

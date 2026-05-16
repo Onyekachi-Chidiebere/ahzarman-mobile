@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { PaymentPinModal, ScreenHeader } from '../components';
+import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { getDataTariffPriceList, parseTariffResponseToTvPlans } from '../api/dataTariffs';
 import { checkBuyPowerMeter, mapMeterCheckToCustomerName, meterVerifyErrorMessage } from '../api/meterCheck';
+import type { AuthUser } from '../api/auth';
+import { ApiError } from '../api/client';
+import { completeTvPurchase, initializeTvPurchase } from '../api/tvPurchase';
+import { PAYSTACK_PUBLIC_KEY } from '../config';
 import type { TvPlan, TvProviderId } from '../tvProviders';
 import { TV_PROVIDERS, TV_TARIFF_PROVIDER } from '../tvProviders';
 import type { AppScreen, Tx } from '../types';
+import { Paystack } from './ElectricityPaystackModal';
 
 const grey = C.muted;
 const PROVIDER_KEYS = Object.keys(TV_PROVIDERS) as TvProviderId[];
@@ -20,10 +25,12 @@ export function TVScreen({
   goTo,
   onAddTx,
   onPurchaseComplete,
+  authUser,
 }: {
   goTo: (s: AppScreen) => void;
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pts: number) => void;
+  authUser: AuthUser | null;
 }) {
   const [provider, setProvider] = useState<TvProviderId>('DStv');
   const [plan, setPlan] = useState<TvPlan | null>(null);
@@ -34,7 +41,17 @@ export function TVScreen({
   const [verifyingDec, setVerifyingDec] = useState(false);
   const [verifiedDec, setVerifiedDec] = useState<{ name: string } | null>(null);
   const [verifyDecError, setVerifyDecError] = useState<string | null>(null);
-  const [showPin, setShowPin] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [completingVend, setCompletingVend] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payCheckout, setPayCheckout] = useState<{
+    reference: string;
+    email: string;
+    amount: number;
+    metadata: Record<string, unknown>;
+  } | null>(null);
+
+  const canPay = !!plan && !!verifiedDec && decoder.length >= 5;
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +87,52 @@ export function TVScreen({
     };
   }, [provider]);
 
+  const dismissPayModal = () => {
+    if (completingVend) return;
+    setShowPayModal(false);
+    setPayCheckout(null);
+  };
+
+  const handlePaystackSuccess = async (res: { reference?: string }) => {
+    if (!payCheckout || !plan) return;
+    const ref = res?.reference?.trim() ? res.reference : payCheckout.reference;
+    const pts = plan.pts;
+    setCompletingVend(true);
+    try {
+      const result = await completeTvPurchase({ reference: ref });
+      if (result.data?.status !== 'success') {
+        throw new Error('TV subscription was not confirmed. Please contact support with your payment reference.');
+      }
+      setShowPayModal(false);
+      setPayCheckout(null);
+      onAddTx({
+        id: String(Date.now()),
+        type: 'tv',
+        title: `${provider} ${plan.name}`,
+        amount: `-₦${plan.price.toLocaleString()}`,
+        pts: `+${pts} pts`,
+        date: 'Just now',
+        status: 'Successful',
+      });
+      onPurchaseComplete(pts);
+    } catch (e) {
+      let msg =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete TV subscription';
+      if (e instanceof ApiError && e.body && typeof e.body === 'object') {
+        const b = e.body as { buypower_message?: string };
+        if (typeof b.buypower_message === 'string' && b.buypower_message.trim()) {
+          msg = b.buypower_message.trim();
+        }
+      }
+      Alert.alert(
+        'Subscription failed',
+        `${msg}\n\nYour Paystack payment may have gone through. Retry from the app or contact support with reference: ${ref}.`,
+      );
+    } finally {
+      setCompletingVend(false);
+    }
+  };
+
   const handleVerifyDec = () => {
     if (decoder.length < 5) return;
     setVerifyingDec(true);
@@ -98,19 +161,73 @@ export function TVScreen({
     })();
   };
 
-  const handleSuccess = () => {
-    if (!plan) return;
-    onAddTx({
-      id: String(Date.now()),
-      type: 'tv',
-      title: `${provider} ${plan.name}`,
-      amount: `-₦${plan.price.toLocaleString()}`,
-      pts: `+${plan.pts} pts`,
-      date: 'Just now',
-      status: 'Successful',
-    });
-    setShowPin(false);
-    onPurchaseComplete(plan.pts);
+  const startPaystackCheckout = () => {
+    if (!canPay || !plan) return;
+    if (!authUser) {
+      Alert.alert('Sign in required', 'Please sign in to subscribe to cable TV.');
+      return;
+    }
+    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
+      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
+      return;
+    }
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      return;
+    }
+    const phone = authUser.phone.replace(/\D/g, '').slice(-11);
+    if (phone.length < 10) {
+      Alert.alert('Phone required', 'Your account needs a valid phone number for TV subscription.');
+      return;
+    }
+    if (!plan.code?.trim()) {
+      Alert.alert('Plan unavailable', 'This plan has no bundle code. Pick another plan or try again later.');
+      return;
+    }
+
+    void (async () => {
+      setPaying(true);
+      try {
+        const init = await initializeTvPurchase({
+          user_id: authUser.id,
+          meter: decoder,
+          phone,
+          disco: TV_TARIFF_PROVIDER[provider],
+          amount: plan.price,
+          name: verifiedDec?.name || authUser.name,
+          email: authUser.email,
+          tariffClass: plan.code,
+          plan_label: plan.name,
+          provider_label: provider,
+          paymentType: 'B2B',
+          vendType: 'PREPAID',
+          defer_payment_init: true,
+        });
+        const reference = init.data?.reference;
+        if (!reference) throw new Error('Server did not return payment reference');
+
+        setPayCheckout({
+          reference,
+          email,
+          amount: plan.price,
+          metadata: {
+            user_id: authUser.id,
+            transaction_id: init.data.transaction_id,
+            type: 'tv',
+            disco: TV_TARIFF_PROVIDER[provider],
+            meter: decoder,
+            tariffClass: plan.code,
+          },
+        });
+        setShowPayModal(true);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not start checkout';
+        Alert.alert('Checkout failed', msg);
+      } finally {
+        setPaying(false);
+      }
+    })();
   };
 
   return (
@@ -233,24 +350,42 @@ export function TVScreen({
         {!verifiedDec ? <Text style={styles.warn}>Verify your decoder number first to select a plan</Text> : null}
 
         <Pressable
-          disabled={!plan || !verifiedDec}
-          onPress={() => plan && verifiedDec && setShowPin(true)}
-          style={[styles.cta, (!plan || !verifiedDec) && styles.ctaDis]}
+          disabled={!canPay || paying || showPayModal}
+          onPress={startPaystackCheckout}
+          style={[styles.cta, (!canPay || paying || showPayModal) && styles.ctaDis]}
         >
-          <Text style={styles.ctaTxt}>
-            {plan && verifiedDec
-              ? `Subscribe ${provider} ${plan.name} — ₦${plan.price.toLocaleString()}`
-              : 'Verify decoder & select a plan'}
-          </Text>
+          {paying ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.ctaTxt}>
+              {canPay && plan
+                ? `Pay with Paystack — ${provider} ${plan.name} · ₦${plan.price.toLocaleString()}`
+                : 'Verify decoder & select a plan'}
+            </Text>
+          )}
         </Pressable>
       </ScrollView>
 
-      <PaymentPinModal
-        visible={showPin}
-        amountLabel={plan ? `₦${plan.price.toLocaleString()}` : '₦0'}
-        onDismiss={() => setShowPin(false)}
-        onConfirm={handleSuccess}
-      />
+      {payCheckout && plan ? (
+        <Paystack
+          visible={showPayModal}
+          paystackKey={PAYSTACK_PUBLIC_KEY}
+          amount={payCheckout.amount}
+          billingEmail={payCheckout.email}
+          reference={payCheckout.reference}
+          metadata={payCheckout.metadata}
+          onSuccess={handlePaystackSuccess}
+          onCancel={() => dismissPayModal()}
+          onRequestClose={dismissPayModal}
+        />
+      ) : null}
+
+      {completingVend ? (
+        <View style={styles.completingOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={C.primary} />
+          <Text style={styles.completingTxt}>Completing your {provider} subscription…</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -346,5 +481,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   ctaDis: { opacity: 0.45 },
-  ctaTxt: { fontSize: 15, fontWeight: '700', color: C.ink },
+  ctaTxt: { fontSize: 15, fontWeight: '700', color: C.ink, textAlign: 'center', paddingHorizontal: 8 },
+  completingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(248,249,246,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    zIndex: 20,
+  },
+  completingTxt: { fontSize: 14, fontWeight: '600', color: C.ink, textAlign: 'center', paddingHorizontal: 24 },
 });

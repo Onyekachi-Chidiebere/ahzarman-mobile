@@ -215,7 +215,12 @@ export function AhzarmanApp() {
         />
       ) : null}
       {screen === 'tv' ? (
-        <TVScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />
+        <TVScreen
+          goTo={goTo}
+          onAddTx={onAddTx}
+          onPurchaseComplete={finishPurchase}
+          authUser={authUser}
+        />
       ) : null}
       {screen === 'giftcards' ? (
         <GiftCardsScreen goTo={goTo} onAddTx={onAddTx} onPurchaseComplete={finishPurchase} />

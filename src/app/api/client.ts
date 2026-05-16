@@ -49,3 +49,11 @@ export async function apiRequest<T>(path: string, opts: RequestOpts = {}): Promi
 
   return json as T;
 }
+
+/** Throws when the server returns HTTP 200 with `{ success: false }`. */
+export function assertApiSuccess<T extends { success?: boolean; message?: string }>(res: T): T {
+  if (res && typeof res === 'object' && res.success === false) {
+    throw new ApiError(res.message || 'Request failed', 200, res);
+  }
+  return res;
+}
