@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
 import { fetchMe, type AuthUser } from './app/api/auth';
+import { getUserTransactions } from './app/api/transactions';
 import { C } from './app/constants';
-import { SAMPLE_TXS } from './app/data';
 import { computeBalanceFromTransactions, parsePtsFromTx } from './app/points';
 import { BottomNav } from './app/components';
 import {
@@ -46,13 +46,15 @@ const POINTS_BALANCE_KEY = 'points_balance';
 export function AhzarmanApp() {
   const [booting, setBooting] = useState(true);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [screen, setScreen] = useState<AppScreen>('onboarding');
   const [stack, setStack] = useState<AppScreen[]>(['onboarding']);
   const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([
     { id: 1, name: 'Mum', phone: '08034567890', network: 'MTN' },
     { id: 2, name: 'Office', phone: '09012345678', network: 'Airtel' },
   ]);
-  const [transactions, setTransactions] = useState<Tx[]>(SAMPLE_TXS);
+  const [transactions, setTransactions] = useState<Tx[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
   const [dataState, setDataState] = useState<DataState>({
     tab: 'daily',
     network: 'MTN',
@@ -60,10 +62,24 @@ export function AhzarmanApp() {
     phone: '',
   });
   const [successPts, setSuccessPts] = useState(30);
-  const [userPoints, setUserPoints] = useState(() => computeBalanceFromTransactions(SAMPLE_TXS));
+  const [userPoints, setUserPoints] = useState(0);
   const [userEstate, setUserEstate] = useState<Estate | null>(null);
   const [estatePoints, setEstatePoints] = useState(0);
   const [elecSuccessSummary, setElecSuccessSummary] = useState<ElecPurchaseSummary | null>(null);
+
+  const refreshTransactions = useCallback(async () => {
+    if (!authUser?.id) return;
+    setTxLoading(true);
+    try {
+      const token = authToken ?? (await AsyncStorage.getItem(AUTH_TOKEN_KEY));
+      const list = await getUserTransactions(authUser.id, token, { limit: 50 });
+      setTransactions(list);
+    } catch {
+      // Keep existing list on transient errors
+    } finally {
+      setTxLoading(false);
+    }
+  }, [authUser?.id, authToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,9 +89,19 @@ export function AhzarmanApp() {
         if (!t) return;
         const me = await fetchMe(t);
         if (cancelled) return;
+        setAuthToken(t);
         setAuthUser(me);
         setScreen('home');
         setStack(['home']);
+        setTxLoading(true);
+        try {
+          const list = await getUserTransactions(me.id, t, { limit: 50 });
+          if (!cancelled) setTransactions(list);
+        } catch {
+          if (!cancelled) setTransactions([]);
+        } finally {
+          if (!cancelled) setTxLoading(false);
+        }
       } catch {
         await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
       } finally {
@@ -91,20 +117,43 @@ export function AhzarmanApp() {
     const balance = computeBalanceFromTransactions(transactions);
     setUserPoints(balance);
     void AsyncStorage.setItem(POINTS_BALANCE_KEY, String(balance));
-  }, [transactions]);
+    if (userEstate) {
+      const contrib = transactions
+        .filter(t => t.status === 'Successful')
+        .reduce((sum, t) => sum + Math.max(0, Math.floor(parsePtsFromTx(t.pts) * 0.1)), 0);
+      setEstatePoints(contrib);
+    }
+  }, [transactions, userEstate]);
+
+  useEffect(() => {
+    if ((screen === 'home' || screen === 'history') && authUser?.id) {
+      void refreshTransactions();
+    }
+  }, [screen, authUser?.id, refreshTransactions]);
 
   const onAuthSuccess = async (token: string, user: AuthUser) => {
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+    setAuthToken(token);
     setAuthUser(user);
     setScreen('home');
     setStack(['home']);
+    setTxLoading(true);
+    try {
+      const list = await getUserTransactions(user.id, token, { limit: 50 });
+      setTransactions(list);
+    } catch {
+      setTransactions([]);
+    } finally {
+      setTxLoading(false);
+    }
   };
 
   const onAddTx = (tx: Tx) => {
-    setTransactions(prev => [tx, ...prev]);
-    if (userEstate && tx.status === 'Successful') {
-      const earned = parsePtsFromTx(tx.pts);
-      if (earned > 0) setEstatePoints(p => p + Math.floor(earned * 0.1));
+    const serverBacked = ['airtime', 'data', 'electricity', 'tv'].includes(tx.type);
+    if (serverBacked) {
+      void refreshTransactions();
+    } else {
+      setTransactions(prev => [tx, ...prev]);
     }
   };
 
@@ -137,6 +186,7 @@ export function AhzarmanApp() {
   };
 
   const finishPurchase = (pts: number) => {
+    void refreshTransactions();
     setSuccessPts(pts);
     goTo('success_simple');
   };
@@ -174,6 +224,7 @@ export function AhzarmanApp() {
         <HomeScreen
           goTo={goTo}
           transactions={transactions}
+          txLoading={txLoading}
           userEstate={userEstate}
           authUser={authUser}
           userPoints={userPoints}
@@ -197,7 +248,9 @@ export function AhzarmanApp() {
       {screen === 'notifications_from_profile' ? (
         <NotificationsScreen goTo={goTo} fromProfile />
       ) : null}
-      {screen === 'history' ? <HistoryScreen goTo={goTo} transactions={transactions} /> : null}
+      {screen === 'history' ? (
+        <HistoryScreen goTo={goTo} transactions={transactions} txLoading={txLoading} />
+      ) : null}
       {screen === 'share_points' ? (
         <SharePointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
       ) : null}

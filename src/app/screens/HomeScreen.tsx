@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C } from '../constants';
 import { SERVICE_ITEMS, txMeta } from '../data';
 import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
@@ -34,12 +34,14 @@ function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
 export function HomeScreen({
   goTo,
   transactions,
+  txLoading,
   userEstate,
   authUser,
   userPoints,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
+  txLoading?: boolean;
   userEstate: Estate | null;
   authUser?: AuthUser | null;
   userPoints: number;
@@ -130,7 +132,12 @@ export function HomeScreen({
               <Text style={styles.link}>See all →</Text>
             </Pressable>
           </View>
-          {recent.length === 0 ? (
+          {txLoading && recent.length === 0 ? (
+            <View style={styles.txLoadingRow}>
+              <ActivityIndicator size="small" color={C.muted} />
+              <Text style={styles.txEmpty}>Loading transactions…</Text>
+            </View>
+          ) : recent.length === 0 ? (
             <Text style={styles.txEmpty}>No transactions yet. Buy airtime or electricity to see them here.</Text>
           ) : (
             recent.map((item, index) => (
@@ -221,6 +228,7 @@ const styles = StyleSheet.create({
   card: { marginTop: 16, backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14 },
   cardTitle: { color: C.ink, fontSize: 14, fontWeight: '700', marginBottom: 10 },
   txEmpty: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
+  txLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   sep: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   txRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   txAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },

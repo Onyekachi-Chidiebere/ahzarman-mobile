@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { txMeta } from '../data';
 import { C } from '../constants';
@@ -10,9 +10,11 @@ const FILTERS: Array<'All' | 'Successful' | 'Pending' | 'Failed'> = ['All', 'Suc
 export function HistoryScreen({
   goTo,
   transactions,
+  txLoading,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
+  txLoading?: boolean;
 }) {
   const [active, setActive] = useState<(typeof FILTERS)[number]>('All');
 
@@ -32,7 +34,12 @@ export function HistoryScreen({
         ))}
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {filtered.length > 0 ? (
+        {txLoading && filtered.length === 0 ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={C.primary} />
+            <Text style={styles.loadingTxt}>Loading transactions…</Text>
+          </View>
+        ) : filtered.length > 0 ? (
           <View style={styles.card}>
             {filtered.map((tx, i) => {
               const m = txMeta(tx);
@@ -132,4 +139,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyCtaTxt: { fontSize: 14, fontWeight: '700', color: C.ink },
+  loadingBox: { alignItems: 'center', paddingVertical: 48, gap: 12 },
+  loadingTxt: { fontSize: 14, color: C.muted },
 });
