@@ -5,8 +5,10 @@ export type AuthUser = {
   name: string;
   phone: string;
   email: string;
-  username?: string;
-  wallet_balance?: string;
+  username?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  wallet_balance?: string | number;
   profile_image?: string | null;
 };
 

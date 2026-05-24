@@ -333,7 +333,14 @@ export function AhzarmanApp() {
           onDelete={id => setBeneficiaries(p => p.filter(x => x.id !== id))}
         />
       ) : null}
-      {screen === 'personal_info' ? <PersonalInfoScreen goTo={goTo} /> : null}
+      {screen === 'personal_info' ? (
+        <PersonalInfoScreen
+          goTo={goTo}
+          authUser={authUser}
+          authToken={authToken}
+          onUserUpdated={setAuthUser}
+        />
+      ) : null}
       {screen === 'security' ? <SecurityScreen goTo={goTo} /> : null}
       {screen === 'terms' ? <TermsScreen goTo={goTo} /> : null}
 
