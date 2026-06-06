@@ -13,6 +13,7 @@ export type ServerTransaction = {
   provider_transaction_id?: string | null;
   transaction_data?: Record<string, unknown> | null;
   meter_token?: string | null;
+  error_message?: string | null;
   date_created?: string;
   date_completed?: string | null;
 };
@@ -183,4 +184,33 @@ export async function getUserTransactions(
 
   const rows = Array.isArray(res.data) ? res.data : [];
   return rows.map(mapServerTransactionToTx);
+}
+
+type TransactionDetailResponse = { success: boolean; data: ServerTransaction };
+
+export function formatTokenDisplay(token: string | null | undefined): string {
+  if (!token?.trim()) return '—';
+  const compact = token.replace(/\s/g, '');
+  return compact.replace(/(.{4})/g, '$1 ').trim();
+}
+
+export function tokenLabelForType(transactionType: string): string {
+  const t = String(transactionType || '').toLowerCase();
+  if (t === 'electricity' || t === 'points_redeem') return 'Electricity token';
+  if (t === 'data') return 'Data PIN';
+  if (t === 'tv') return 'Subscription reference';
+  return 'Reference';
+}
+
+export function hasTokenField(transactionType: string): boolean {
+  const t = String(transactionType || '').toLowerCase();
+  return t === 'electricity' || t === 'points_redeem' || t === 'data' || t === 'tv';
+}
+
+export async function getTransactionById(id: number | string, token: string | null) {
+  const res = await apiRequest<TransactionDetailResponse>(`/transactions/${id}`, {
+    method: 'GET',
+    token,
+  });
+  return res.data;
 }

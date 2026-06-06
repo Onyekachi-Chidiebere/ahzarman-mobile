@@ -271,7 +271,12 @@ export function AhzarmanApp() {
         <NotificationsScreen goTo={goTo} fromProfile />
       ) : null}
       {screen === 'history' ? (
-        <HistoryScreen goTo={goTo} transactions={transactions} txLoading={txLoading} />
+        <HistoryScreen
+          goTo={goTo}
+          transactions={transactions}
+          txLoading={txLoading}
+          authToken={authToken}
+        />
       ) : null}
       {screen === 'share_points' ? (
         <SharePointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
