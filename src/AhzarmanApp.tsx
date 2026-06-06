@@ -1,7 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
-import { fetchMe, type AuthUser } from './app/api/auth';
+import {
+  AUTH_TOKEN_KEY,
+  clearAuthSession,
+  fetchMe,
+  POINTS_BALANCE_KEY,
+  type AuthUser,
+} from './app/api/auth';
 import { getUserTransactions } from './app/api/transactions';
 import { C } from './app/constants';
 import { computeBalanceFromTransactions, parsePtsFromTx } from './app/points';
@@ -39,9 +45,6 @@ import {
   TermsScreen,
 } from './app/screens/index';
 import type { AppScreen, Beneficiary, DataState, ElecPurchaseSummary, Estate, Tx } from './app/types';
-
-const AUTH_TOKEN_KEY = 'auth_token';
-const POINTS_BALANCE_KEY = 'points_balance';
 
 export function AhzarmanApp() {
   const [booting, setBooting] = useState(true);
@@ -148,6 +151,19 @@ export function AhzarmanApp() {
     }
   };
 
+  const onLogout = async () => {
+    await clearAuthSession();
+    setAuthToken(null);
+    setAuthUser(null);
+    setTransactions([]);
+    setUserPoints(0);
+    setUserEstate(null);
+    setEstatePoints(0);
+    setElecSuccessSummary(null);
+    setScreen('sign_in');
+    setStack(['sign_in']);
+  };
+
   const onAddTx = (tx: Tx) => {
     const serverBacked = ['airtime', 'data', 'electricity', 'tv'].includes(tx.type);
     if (serverBacked) {
@@ -241,7 +257,13 @@ export function AhzarmanApp() {
         />
       ) : null}
       {screen === 'profile' ? (
-        <ProfileScreen goTo={goTo} userEstate={userEstate} authUser={authUser} userPoints={userPoints} />
+        <ProfileScreen
+          goTo={goTo}
+          userEstate={userEstate}
+          authUser={authUser}
+          userPoints={userPoints}
+          onLogout={onLogout}
+        />
       ) : null}
 
       {screen === 'notifications' ? <NotificationsScreen goTo={goTo} fromProfile={false} /> : null}
@@ -271,6 +293,7 @@ export function AhzarmanApp() {
           goTo={goTo}
           onAddTx={onAddTx}
           authUser={authUser}
+          authToken={authToken}
           onPurchaseSuccess={sum => {
             setElecSuccessSummary(sum);
             goTo('elec_success');

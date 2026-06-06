@@ -1,4 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiRequest } from './client';
+
+export const AUTH_TOKEN_KEY = 'auth_token';
+export const POINTS_BALANCE_KEY = 'points_balance';
+
+/** Clears persisted auth (client-side JWT logout). */
+export async function clearAuthSession() {
+  await Promise.all([
+    AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+    AsyncStorage.removeItem(POINTS_BALANCE_KEY),
+  ]);
+}
 
 export type AuthUser = {
   id: number;

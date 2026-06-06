@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { AuthUser } from '../api/auth';
@@ -17,12 +17,26 @@ export function ProfileScreen({
   userEstate,
   authUser,
   userPoints,
+  onLogout,
 }: {
   goTo: (s: AppScreen) => void;
   userEstate: Estate | null;
   authUser?: AuthUser | null;
   userPoints: number;
+  onLogout: () => void | Promise<void>;
 }) {
+  const confirmLogout = () => {
+    Alert.alert('Log out', 'Are you sure you want to sign out of your account?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: () => {
+          void onLogout();
+        },
+      },
+    ]);
+  };
   const { tier } = getTierForBalance(userPoints);
   const baseRows = [
     { label: 'Personal Info', sub: 'Name, email, phone', screen: 'personal_info' as const, icon: <UserIcon /> },
@@ -104,6 +118,9 @@ export function ProfileScreen({
             </View>
           ))}
         </View>
+        <Pressable onPress={confirmLogout} style={styles.logoutBtn} accessibilityRole="button">
+          <Text style={styles.logoutTxt}>Log out</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -159,4 +176,15 @@ const styles = StyleSheet.create({
   sub: { color: C.muted, fontSize: 11, marginTop: 2 },
   chev: { color: C.muted, fontSize: 18, fontWeight: '600' },
   sep: { height: 1, backgroundColor: C.border },
+  logoutBtn: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.errorBorder,
+    backgroundColor: C.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutTxt: { fontSize: 15, fontWeight: '600', color: C.error },
 });

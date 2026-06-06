@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,12 @@ import {
 } from '../api/meterCheck';
 import type { AuthUser } from '../api/auth';
 import { completeElectricityPurchase, initializeElectricityPurchase } from '../api/electricityPurchase';
+import {
+  getSavedMeters,
+  maskMeterNumber,
+  saveVerifiedMeter,
+  type SavedMeter,
+} from '../api/savedMeters';
 import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
@@ -55,27 +61,36 @@ function mapMeterCheckToCustomer(data: unknown): { name: string; address: string
   return { name: name || 'Customer', address: address || '—', min: min || '500' };
 }
 
+function findDiscoById(discoId: string): Disco | null {
+  return ELECTRICITY_DISCOS.find(d => d.id === discoId) ?? null;
+}
+
 export function ElectricityScreen({
   goTo,
   onAddTx,
   authUser,
+  authToken,
   onPurchaseSuccess,
 }: {
   goTo: (s: AppScreen) => void;
   onAddTx: (tx: Tx) => void;
   authUser: AuthUser | null;
+  authToken: string | null;
   onPurchaseSuccess: (summary: ElecPurchaseSummary) => void;
 }) {
   const [disco, setDisco] = useState<Disco | null>(null);
   const [showDiscoSheet, setShowDiscoSheet] = useState(false);
   const [meter, setMeter] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [verified, setVerified] = useState<{ name: string; address: string, min:string } | null>(null);
+  const [verified, setVerified] = useState<{ name: string; address: string; min: string } | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [payError, setPayError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [savedMeters, setSavedMeters] = useState<SavedMeter[]>([]);
+  const [loadingSavedMeters, setLoadingSavedMeters] = useState(false);
+  const [selectedSavedMeterId, setSelectedSavedMeterId] = useState<string | null>(null);
   const [payCheckout, setPayCheckout] = useState<{
     reference: string;
     transactionId: number;
@@ -83,25 +98,96 @@ export function ElectricityScreen({
     metadata: Record<string, unknown>;
   } | null>(null);
 
+  const loadSavedMeters = useCallback(async () => {
+    if (!authUser?.id || !authToken) {
+      setSavedMeters([]);
+      return;
+    }
+    setLoadingSavedMeters(true);
+    try {
+      const list = await getSavedMeters(authUser.id, authToken);
+      setSavedMeters(list);
+    } catch {
+      // Non-blocking — user can still verify manually
+    } finally {
+      setLoadingSavedMeters(false);
+    }
+  }, [authUser?.id, authToken]);
+
+  useEffect(() => {
+    void loadSavedMeters();
+  }, [loadSavedMeters]);
+
+  const resetMeterFlow = () => {
+    setMeter('');
+    setVerified(null);
+    setVerifyError(null);
+    setAmount('');
+    setSelectedSavedMeterId(null);
+  };
+
+  const applySavedMeter = (saved: SavedMeter) => {
+    const matchedDisco = findDiscoById(saved.disco_id);
+    if (!matchedDisco) {
+      Alert.alert('DisCo unavailable', 'This saved meter uses a distribution company that is no longer listed.');
+      return;
+    }
+    setDisco(matchedDisco);
+    setMeter(saved.meter);
+    setVerified({
+      name: saved.customer_name,
+      address: saved.address,
+      min: saved.min_amount || '500',
+    });
+    setVerifyError(null);
+    setAmount('');
+    setSelectedSavedMeterId(saved.id);
+  };
+
+  const persistVerifiedMeter = async (
+    discoObj: Disco,
+    meterNum: string,
+    result: { name: string; address: string; min: string },
+  ) => {
+    if (!authUser?.id || !authToken) return;
+    try {
+      const discoCode = discoObj.buypowerCode ?? discoObj.id;
+      const saved = await saveVerifiedMeter(authUser.id, authToken, {
+        meter: meterNum,
+        disco: discoCode,
+        disco_id: discoObj.id,
+        customer_name: result.name,
+        address: result.address,
+        min_amount: result.min,
+      });
+      setSavedMeters(prev => {
+        const rest = prev.filter(m => m.id !== saved.id);
+        return [saved, ...rest];
+      });
+      setSelectedSavedMeterId(saved.id);
+    } catch {
+      // Verify succeeded locally; saving is best-effort
+    }
+  };
+
   const handleVerify = () => {
     if (!disco || meter.length < 11) return;
     setVerifying(true);
     setVerified(null);
     setVerifyError(null);
+    setSelectedSavedMeterId(null);
     void (async () => {
       try {
         const discoCode = disco.buypowerCode ?? disco.id;
         const res = await checkElectricityMeter({ meter, disco: discoCode, vendType: 'PREPAID' });
         const mapped = mapMeterCheckToCustomer(res.data);
-        if (mapped) {
-          setVerified(mapped);
-        } else {
-          setVerified({
-            name: 'Meter verified',
-            address: `Proceed to enter amount for ${disco.name}.`,
-            min: '500',
-          });
-        }
+        const result = mapped ?? {
+          name: 'Meter verified',
+          address: `Proceed to enter amount for ${disco.name}.`,
+          min: '500',
+        };
+        setVerified(result);
+        await persistVerifiedMeter(disco, meter, result);
       } catch (e) {
         setVerifyError(
           meterVerifyErrorMessage(e, 'Could not verify meter. Check your connection and try again.'),
@@ -217,6 +303,42 @@ export function ElectricityScreen({
           </Svg>
         </Pressable>
 
+        {authUser && savedMeters.length > 0 ? (
+          <View style={styles.savedSection}>
+            <View style={styles.savedHead}>
+              <Text style={styles.sectionLabel}>SAVED METERS</Text>
+              {selectedSavedMeterId ? (
+                <Pressable onPress={resetMeterFlow} hitSlop={8}>
+                  <Text style={styles.useNewTxt}>Use new meter</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {loadingSavedMeters ? (
+              <ActivityIndicator size="small" color={grey} style={{ marginBottom: 8 }} />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedRow}>
+                {savedMeters.map(saved => {
+                  const sel = selectedSavedMeterId === saved.id;
+                  return (
+                    <Pressable
+                      key={saved.id}
+                      onPress={() => applySavedMeter(saved)}
+                      style={[styles.savedChip, sel ? styles.savedChipSel : null]}
+                    >
+                      <Text style={[styles.savedName, sel && { color: C.olive }]} numberOfLines={1}>
+                        {saved.customer_name}
+                      </Text>
+                      <Text style={styles.savedMeta} numberOfLines={1}>
+                        {saved.disco_id} · {maskMeterNumber(saved.meter)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
+
         <Text style={styles.sectionLabel}>METER NUMBER</Text>
         <View style={styles.meterRow}>
           <View style={[styles.meterInputWrap, verified ? { borderColor: C.successBorder, backgroundColor: C.successBg } : null]}>
@@ -226,6 +348,7 @@ export function ElectricityScreen({
                 setMeter(v.replace(/\D/g, '').slice(0, 13));
                 setVerified(null);
                 setVerifyError(null);
+                setSelectedSavedMeterId(null);
               }}
               placeholder="Enter meter number"
               placeholderTextColor={C.placeholder}
@@ -333,9 +456,7 @@ export function ElectricityScreen({
                     onPress={() => {
                       setDisco(d);
                       setShowDiscoSheet(false);
-                      setMeter('');
-                      setVerified(null);
-                      setVerifyError(null);
+                      resetMeterFlow();
                     }}
                     style={[styles.sheetRow, sel ? { borderColor: C.primary, backgroundColor: C.primFaint } : null]}
                   >
@@ -443,6 +564,31 @@ const styles = StyleSheet.create({
   discoName: { fontSize: 14, fontWeight: '600', color: C.ink },
   discoShort: { fontSize: 11, color: grey },
   discoPlaceholder: { flex: 1, fontSize: 14, color: C.placeholder },
+  savedSection: { marginBottom: 12 },
+  savedHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  useNewTxt: { fontSize: 12, fontWeight: '600', color: C.olive },
+  savedRow: { gap: 8, paddingBottom: 4 },
+  savedChip: {
+    minWidth: 120,
+    maxWidth: 160,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: C.white,
+  },
+  savedChipSel: {
+    borderColor: C.primary,
+    backgroundColor: C.primFaint,
+  },
+  savedName: { fontSize: 13, fontWeight: '600', color: C.ink },
+  savedMeta: { fontSize: 10, color: grey, marginTop: 2 },
   meterRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   meterInputWrap: {
     flex: 1,
