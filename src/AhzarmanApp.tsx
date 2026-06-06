@@ -9,6 +9,8 @@ import {
   type AuthUser,
 } from './app/api/auth';
 import { getUserTransactions } from './app/api/transactions';
+import { getNotifications, type AppNotification } from './app/api/notifications';
+import { connectNotificationsSocket } from './app/api/notificationsSocket';
 import { C } from './app/constants';
 import { computeBalanceFromTransactions, parsePtsFromTx } from './app/points';
 import { BottomNav } from './app/components';
@@ -69,6 +71,9 @@ export function AhzarmanApp() {
   const [userEstate, setUserEstate] = useState<Estate | null>(null);
   const [estatePoints, setEstatePoints] = useState(0);
   const [elecSuccessSummary, setElecSuccessSummary] = useState<ElecPurchaseSummary | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   const refreshTransactions = useCallback(async () => {
     if (!authUser?.id) return;
@@ -84,6 +89,25 @@ export function AhzarmanApp() {
     }
   }, [authUser?.id, authToken]);
 
+  const refreshNotifications = useCallback(async () => {
+    if (!authUser?.id) return;
+    setNotifLoading(true);
+    try {
+      const token = authToken ?? (await AsyncStorage.getItem(AUTH_TOKEN_KEY));
+      const { items, unreadCount } = await getNotifications(authUser.id, token);
+      setNotifications(items);
+      setUnreadNotifCount(unreadCount);
+    } catch {
+      // Non-blocking
+    } finally {
+      setNotifLoading(false);
+    }
+  }, [authUser?.id, authToken]);
+
+  const refreshAfterPointsChange = useCallback(async () => {
+    await Promise.all([refreshTransactions(), refreshNotifications()]);
+  }, [refreshTransactions, refreshNotifications]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -98,8 +122,15 @@ export function AhzarmanApp() {
         setStack(['home']);
         setTxLoading(true);
         try {
-          const list = await getUserTransactions(me.id, t, { limit: 50 });
-          if (!cancelled) setTransactions(list);
+          const [list, notifRes] = await Promise.all([
+            getUserTransactions(me.id, t, { limit: 50 }),
+            getNotifications(me.id, t),
+          ]);
+          if (!cancelled) {
+            setTransactions(list);
+            setNotifications(notifRes.items);
+            setUnreadNotifCount(notifRes.unreadCount);
+          }
         } catch {
           if (!cancelled) setTransactions([]);
         } finally {
@@ -132,7 +163,32 @@ export function AhzarmanApp() {
     if ((screen === 'home' || screen === 'history') && authUser?.id) {
       void refreshTransactions();
     }
-  }, [screen, authUser?.id, refreshTransactions]);
+    if (
+      (screen === 'notifications' || screen === 'notifications_from_profile') &&
+      authUser?.id
+    ) {
+      void refreshNotifications();
+    }
+  }, [screen, authUser?.id, refreshTransactions, refreshNotifications]);
+
+  useEffect(() => {
+    if (!authUser?.id || !authToken) return;
+
+    const disconnect = connectNotificationsSocket(authToken, {
+      onNotificationNew: ({ notification, unread_count }) => {
+        setNotifications(prev => {
+          if (prev.some(n => n.id === notification.id)) return prev;
+          return [notification, ...prev];
+        });
+        setUnreadNotifCount(unread_count);
+      },
+      onPointsReceived: () => {
+        void refreshTransactions();
+      },
+    });
+
+    return disconnect;
+  }, [authUser?.id, authToken, refreshTransactions]);
 
   const onAuthSuccess = async (token: string, user: AuthUser) => {
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
@@ -144,6 +200,9 @@ export function AhzarmanApp() {
     try {
       const list = await getUserTransactions(user.id, token, { limit: 50 });
       setTransactions(list);
+      const { items, unreadCount } = await getNotifications(user.id, token);
+      setNotifications(items);
+      setUnreadNotifCount(unreadCount);
     } catch {
       setTransactions([]);
     } finally {
@@ -160,12 +219,14 @@ export function AhzarmanApp() {
     setUserEstate(null);
     setEstatePoints(0);
     setElecSuccessSummary(null);
+    setNotifications([]);
+    setUnreadNotifCount(0);
     setScreen('sign_in');
     setStack(['sign_in']);
   };
 
   const onAddTx = (tx: Tx) => {
-    const serverBacked = ['airtime', 'data', 'electricity', 'tv'].includes(tx.type);
+    const serverBacked = ['airtime', 'data', 'electricity', 'tv', 'points'].includes(tx.type);
     if (serverBacked) {
       void refreshTransactions();
     } else {
@@ -173,18 +234,6 @@ export function AhzarmanApp() {
     }
   };
 
-  const recordPointsSpend = (title: string, amount: number) => {
-    if (amount <= 0) return;
-    onAddTx({
-      id: String(Date.now()),
-      type: 'points',
-      title,
-      amount: '',
-      pts: `-${amount} pts`,
-      date: 'Just now',
-      status: 'Successful',
-    });
-  };
   const showBottomNav = ['home', 'services', 'rewards', 'profile'].includes(screen);
 
   const goTo = (next: AppScreen) => {
@@ -244,6 +293,7 @@ export function AhzarmanApp() {
           userEstate={userEstate}
           authUser={authUser}
           userPoints={userPoints}
+          unreadNotifCount={unreadNotifCount}
         />
       ) : null}
       {screen === 'services' ? <ServicesScreen goTo={goTo} /> : null}
@@ -266,9 +316,27 @@ export function AhzarmanApp() {
         />
       ) : null}
 
-      {screen === 'notifications' ? <NotificationsScreen goTo={goTo} fromProfile={false} /> : null}
+      {screen === 'notifications' ? (
+        <NotificationsScreen
+          goTo={goTo}
+          fromProfile={false}
+          authUserId={authUser?.id ?? null}
+          authToken={authToken}
+          notifications={notifications}
+          loading={notifLoading}
+          onRefresh={refreshNotifications}
+        />
+      ) : null}
       {screen === 'notifications_from_profile' ? (
-        <NotificationsScreen goTo={goTo} fromProfile />
+        <NotificationsScreen
+          goTo={goTo}
+          fromProfile
+          authUserId={authUser?.id ?? null}
+          authToken={authToken}
+          notifications={notifications}
+          loading={notifLoading}
+          onRefresh={refreshNotifications}
+        />
       ) : null}
       {screen === 'history' ? (
         <HistoryScreen
@@ -279,7 +347,12 @@ export function AhzarmanApp() {
         />
       ) : null}
       {screen === 'share_points' ? (
-        <SharePointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
+        <SharePointsScreen
+          goTo={goTo}
+          userPoints={userPoints}
+          authToken={authToken}
+          onShareSuccess={refreshAfterPointsChange}
+        />
       ) : null}
       {screen === 'redeem_points' ? (
         <RedeemPointsScreen
@@ -287,7 +360,7 @@ export function AhzarmanApp() {
           userPoints={userPoints}
           authUser={authUser}
           authToken={authToken}
-          onRedeemSuccess={refreshTransactions}
+          onRedeemSuccess={refreshAfterPointsChange}
         />
       ) : null}
       {screen === 'refer' ? <ReferScreen goTo={goTo} goBack={goBack} /> : null}

@@ -38,6 +38,7 @@ export function HomeScreen({
   userEstate,
   authUser,
   userPoints,
+  unreadNotifCount = 0,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
@@ -45,6 +46,7 @@ export function HomeScreen({
   userEstate: Estate | null;
   authUser?: AuthUser | null;
   userPoints: number;
+  unreadNotifCount?: number;
 }) {
   const firstName = authUser?.name?.trim().split(/\s+/)[0] ?? 'there';
   const recent = transactions.slice(0, 4);
@@ -64,6 +66,13 @@ export function HomeScreen({
           </View>
           <Pressable onPress={() => goTo('notifications')} hitSlop={10} style={styles.iconBtn}>
             <Text style={styles.iconBtnTxt}>🔔</Text>
+            {unreadNotifCount > 0 ? (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeTxt}>
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
 
@@ -171,8 +180,21 @@ const styles = StyleSheet.create({
   topTextWrap: { flex: 1, marginLeft: 8 },
   topHi: { color: C.textColor, fontSize: 15, fontWeight: '500' },
   topSub: { color: C.muted, fontSize: 11 },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  iconBtnTxt: { fontSize: 16 },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  iconBtnTxt: { fontSize: 18 },
+  notifBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: C.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  notifBadgeTxt: { fontSize: 9, fontWeight: '700', color: C.white },
   pointsCard: { backgroundColor: C.ink, borderRadius: 16, padding: 18, marginBottom: 14 },
   pointsLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: '500', marginBottom: 3 },
   pointsBig: { color: C.white, fontSize: 36, fontWeight: '700', marginBottom: 2 },

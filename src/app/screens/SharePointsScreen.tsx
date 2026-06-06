@@ -1,41 +1,144 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { PaymentPinModal, ScreenHeader } from '../components';
+import { apiErrorMessage } from '../api/client';
+import { lookupRecipientByPhone, sharePoints } from '../api/pointsShare';
+import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { NumPad } from '../NumPad';
 import type { AppScreen } from '../types';
 
 const grey = C.muted;
 
-const CONTACTS = [
-  { name: 'Mum', phone: '08034567890' },
-  { name: 'Office', phone: '09012345678' },
-  { name: 'Ahmed', phone: '07055443322' },
-];
-
 export function SharePointsScreen({
   goTo,
   userPoints,
-  onSpendPoints,
+  authToken,
+  onShareSuccess,
 }: {
   goTo: (s: AppScreen) => void;
   userPoints: number;
-  onSpendPoints: (title: string, amount: number) => void;
+  authToken: string | null;
+  onShareSuccess: () => void | Promise<void>;
 }) {
   const [phone, setPhone] = useState('');
-  const [name, setName] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [lookupOk, setLookupOk] = useState(false);
+  const [lookupErr, setLookupErr] = useState<string | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
   const [note, setNote] = useState('');
   const [pts, setPts] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinErr, setPinErr] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [remainingPts, setRemainingPts] = useState(0);
+  const [sentPts, setSentPts] = useState(0);
+  const [sentTo, setSentTo] = useState('');
 
   const ptsNum = parseInt(pts || '0', 10);
-  const valid = phone.length === 11 && ptsNum >= 10 && ptsNum <= userPoints;
+  const valid = lookupOk && phone.length === 11 && ptsNum >= 10 && ptsNum <= userPoints;
 
-  const handleSuccess = () => {
-    onSpendPoints(`Shared points — ${name || phone}`, ptsNum);
-    setShowPin(false);
-    setDone(true);
+  const runLookup = useCallback(
+    async (phoneInput: string) => {
+      if (phoneInput.length !== 11) {
+        setLookupOk(false);
+        setRecipientName('');
+        setLookupErr(null);
+        return;
+      }
+      if (!authToken) {
+        setLookupErr('Sign in to send points.');
+        setLookupOk(false);
+        return;
+      }
+      setLookupLoading(true);
+      setLookupErr(null);
+      setLookupOk(false);
+      try {
+        const res = await lookupRecipientByPhone(authToken, phoneInput);
+        if (res.data?.registered && res.data.name) {
+          setRecipientName(res.data.name);
+          setLookupOk(true);
+        } else {
+          setLookupErr('This number is not registered on Ahzarman');
+        }
+      } catch (e) {
+        setLookupErr(apiErrorMessage(e, 'Could not verify recipient'));
+        setRecipientName('');
+      } finally {
+        setLookupLoading(false);
+      }
+    },
+    [authToken],
+  );
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (phone.length === 11) void runLookup(phone);
+      else {
+        setLookupOk(false);
+        setRecipientName('');
+        setLookupErr(null);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [phone, runLookup]);
+
+  const submitShare = async (pinValue: string) => {
+    if (!valid || !authToken) return;
+    setSubmitting(true);
+    setPinErr('');
+    try {
+      const result = await sharePoints(authToken, {
+        recipient_phone: phone,
+        points: ptsNum,
+        pin: pinValue,
+        note: note.trim() || undefined,
+      });
+      setSentPts(result.points_sent);
+      setRemainingPts(result.remaining_points);
+      setSentTo(result.recipient.name || recipientName || phone);
+      await onShareSuccess();
+      setShowPin(false);
+      setPin('');
+      setDone(true);
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Could not send points'));
+      setPin('');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDigit = (d: string) => {
+    if (submitting || pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setPinErr('');
+    if (next.length === 4) void submitShare(next);
+  };
+
+  const openPin = () => {
+    if (!valid) return;
+    if (!authToken) {
+      Alert.alert('Sign in required', 'Please sign in to share points.');
+      return;
+    }
+    setPin('');
+    setPinErr('');
+    setShowPin(true);
   };
 
   if (done) {
@@ -53,14 +156,14 @@ export function SharePointsScreen({
           </Svg>
         </View>
         <View style={{ alignItems: 'center' }}>
-          <Text style={styles.doneTitle}>{pts} pts sent!</Text>
+          <Text style={styles.doneTitle}>{sentPts.toLocaleString()} pts sent!</Text>
           <Text style={styles.doneSub}>
             Points transferred to{'\n'}
-            <Text style={styles.doneStrong}>{name || phone}</Text>
+            <Text style={styles.doneStrong}>{sentTo}</Text>
           </Text>
         </View>
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceBig}>{(userPoints - ptsNum).toLocaleString()} pts</Text>
+          <Text style={styles.balanceBig}>{remainingPts.toLocaleString()} pts</Text>
           <Text style={styles.balanceLbl}>Your remaining balance</Text>
         </View>
         <Pressable onPress={() => goTo('home')} style={styles.primaryBtn}>
@@ -86,35 +189,21 @@ export function SharePointsScreen({
           </View>
         </View>
 
-        <Text style={styles.secLbl}>Quick Select</Text>
-        <View style={styles.quickRow}>
-          {CONTACTS.map(c => {
-            const sel = phone === c.phone;
-            return (
-              <Pressable key={c.phone} onPress={() => { setPhone(c.phone); setName(c.name); }} style={styles.quickItem}>
-                <View style={styles.quickRingWrap}>
-                  <View style={[styles.quickAvatar, sel && styles.quickAvatarOn]}>
-                    <Text style={styles.quickAvatarTxt}>{c.name[0]}</Text>
-                  </View>
-                  {sel ? <View style={styles.quickRing} /> : null}
-                </View>
-                <Text style={[styles.quickLabel, sel && { color: C.olive, fontWeight: '600' }]}>{c.name}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
         <Text style={styles.fieldLbl}>Recipient Phone Number</Text>
         <View style={styles.fieldWrap}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, lookupOk ? { borderColor: C.successBorder } : null]}
             placeholder="08000000000"
             placeholderTextColor={C.placeholder}
             value={phone}
             onChangeText={v => setPhone(v.replace(/\D/g, '').slice(0, 11))}
             keyboardType="phone-pad"
           />
-          {phone.length === 11 ? (
+          {lookupLoading ? (
+            <View style={styles.check}>
+              <ActivityIndicator size="small" color={grey} />
+            </View>
+          ) : lookupOk ? (
             <View style={styles.check}>
               <Svg width={16} height={16} viewBox="0 0 24 24">
                 <Circle cx={12} cy={12} r={10} fill={C.success} />
@@ -129,7 +218,11 @@ export function SharePointsScreen({
             </View>
           ) : null}
         </View>
-        <Text style={styles.hint}>11-digit Ahzarman registered number</Text>
+        {lookupOk && recipientName ? (
+          <Text style={styles.recipientOk}>Registered: {recipientName}</Text>
+        ) : null}
+        {lookupErr ? <Text style={styles.lookupErr}>{lookupErr}</Text> : null}
+        <Text style={styles.hint}>11-digit number registered on Ahzarman</Text>
 
         <Text style={styles.fieldLbl}>Points to Send</Text>
         <TextInput
@@ -160,19 +253,92 @@ export function SharePointsScreen({
           multiline
         />
 
-        <Pressable disabled={!valid} onPress={() => valid && setShowPin(true)} style={[styles.primaryBtn, !valid && styles.btnDisabled]}>
-          <Text style={styles.primaryBtnTxt}>
-            {valid ? `Send ${ptsNum.toLocaleString()} pts →` : 'Enter recipient and amount'}
-          </Text>
+        <Pressable
+          disabled={!valid || submitting}
+          onPress={openPin}
+          style={[styles.primaryBtn, (!valid || submitting) && styles.btnDisabled]}
+        >
+          {submitting ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.primaryBtnTxt}>
+              {valid ? `Send ${ptsNum.toLocaleString()} pts →` : 'Enter recipient and amount'}
+            </Text>
+          )}
         </Pressable>
+        <Text style={styles.pinHint}>Confirm with your 4-digit login PIN</Text>
       </ScrollView>
 
-      <PaymentPinModal
+      <Modal
         visible={showPin}
-        amountLabel={`${ptsNum.toLocaleString()} pts`}
-        onDismiss={() => setShowPin(false)}
-        onConfirm={handleSuccess}
-      />
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!submitting) {
+            setShowPin(false);
+            setPin('');
+            setPinErr('');
+          }
+        }}
+      >
+        <Pressable
+          style={styles.pinOverlay}
+          onPress={() => {
+            if (!submitting) {
+              setShowPin(false);
+              setPin('');
+              setPinErr('');
+            }
+          }}
+        >
+          <Pressable style={styles.pinSheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.grabber} />
+            <Text style={styles.pinTitle}>Confirm with PIN</Text>
+            <Text style={styles.pinSub}>
+              Send <Text style={{ color: C.olive, fontWeight: '700' }}>{ptsNum.toLocaleString()} pts</Text> to{' '}
+              {recipientName || phone}
+            </Text>
+            <View style={styles.dots}>
+              {[0, 1, 2, 3].map(i => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    { backgroundColor: pin.length > i ? (pinErr ? C.error : C.primary) : C.border },
+                  ]}
+                />
+              ))}
+            </View>
+            {submitting ? <ActivityIndicator color={C.primary} style={{ marginBottom: 8 }} /> : null}
+            {pinErr ? (
+              <View style={styles.errBox}>
+                <Text style={styles.errTxt}>{pinErr}</Text>
+              </View>
+            ) : null}
+            <NumPad
+              onDigit={handleDigit}
+              onDelete={() => {
+                if (!submitting) {
+                  setPin(p => p.slice(0, -1));
+                  setPinErr('');
+                }
+              }}
+            />
+            <Pressable
+              onPress={() => {
+                if (!submitting) {
+                  setShowPin(false);
+                  setPin('');
+                  setPinErr('');
+                }
+              }}
+              style={styles.cancelBtn}
+            >
+              <Text style={styles.cancelTxt}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -180,7 +346,7 @@ export function SharePointsScreen({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#F8F9F6' },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 32, gap: 0 },
+  content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 32 },
   donePage: {
     flex: 1,
     backgroundColor: C.white,
@@ -227,40 +393,8 @@ const styles = StyleSheet.create({
   heroPts: { fontSize: 16, opacity: 0.5, fontWeight: '400' },
   heroPill: { backgroundColor: `${C.primary}22`, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
   heroPillTxt: { fontSize: 14, fontWeight: '700', color: C.primLt },
-  secLbl: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: grey,
-    marginBottom: 10,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  quickRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  quickItem: { alignItems: 'center', gap: 5 },
-  quickRingWrap: { position: 'relative' },
-  quickAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: C.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickAvatarOn: {},
-  quickRing: {
-    position: 'absolute',
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-    borderRadius: 27,
-    borderWidth: 2,
-    borderColor: C.primary,
-  },
-  quickAvatarTxt: { fontSize: 20, fontWeight: '700', color: C.ink },
-  quickLabel: { fontSize: 11, color: grey },
   fieldLbl: { fontSize: 11, fontWeight: '500', color: grey, marginBottom: 6, letterSpacing: 0.3 },
-  fieldWrap: { position: 'relative' },
+  fieldWrap: { position: 'relative', marginBottom: 4 },
   input: {
     height: 52,
     borderRadius: 10,
@@ -271,8 +405,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.ink,
   },
-  inputMulti: { height: 88, paddingTop: 12, textAlignVertical: 'top' },
+  inputMulti: { height: 88, paddingTop: 12, textAlignVertical: 'top', marginBottom: 4 },
   check: { position: 'absolute', right: 12, top: 16 },
+  recipientOk: { fontSize: 12, fontWeight: '600', color: C.success, marginBottom: 4 },
+  lookupErr: { fontSize: 12, color: C.error, marginBottom: 4 },
   hint: { fontSize: 11, color: grey, marginTop: 6, marginBottom: 12 },
   convBox: {
     backgroundColor: C.primFaint,
@@ -294,4 +430,35 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
   primaryBtnTxt: { color: C.ink, fontSize: 16, fontWeight: '700' },
+  pinHint: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 12 },
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  pinSheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E0E0E0', alignSelf: 'center', marginBottom: 16 },
+  pinTitle: { fontSize: 17, fontWeight: '700', color: C.ink, textAlign: 'center' },
+  pinSub: { fontSize: 13, color: grey, textAlign: 'center', marginTop: 4, lineHeight: 20 },
+  dots: { flexDirection: 'row', gap: 16, justifyContent: 'center', marginVertical: 20 },
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  errBox: {
+    backgroundColor: C.errorBg,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: C.errorBorder,
+    marginBottom: 8,
+  },
+  errTxt: { fontSize: 13, fontWeight: '500', color: C.error, textAlign: 'center' },
+  cancelBtn: { marginTop: 8, paddingVertical: 12, alignItems: 'center' },
+  cancelTxt: { fontSize: 14, fontWeight: '500', color: grey },
 });

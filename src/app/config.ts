@@ -13,5 +13,8 @@ export const API_BASE_URL = __DEV__
   ? `http://${DEV_HOST}:${PORT}/api`
   : 'https://api.ahzarmanltd.com/api';
 
+/** Socket.IO server origin (same host as API, without /api path). */
+export const SOCKET_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+
 /** Paystack public key (pk_test_… / pk_live_…). Passed as `paystackKey` on the checkout modal. Secret key stays on the server. */
 export const PAYSTACK_PUBLIC_KEY = 'pk_test_ad77c1c2df69ac754ba4d4c64c3a2af6dde13bb2';

@@ -41,7 +41,7 @@ function mapStatus(status: string): Tx['status'] {
 
 function mapType(transactionType: string): Tx['type'] {
   const t = String(transactionType || '').toLowerCase();
-  if (t === 'points_redeem' || t === 'points_share') return 'points';
+  if (t === 'points_redeem' || t === 'points_share' || t === 'points_received') return 'points';
   if (t === 'gift_card' || t === 'gift_card_sale') return 'giftcard';
   if (t === 'betting_funding' || t === 'betting') return 'betting';
   const allowed: Tx['type'][] = [
@@ -124,6 +124,10 @@ function buildTitle(row: ServerTransaction): string {
     }
     case 'points_share':
       return pickString(td, ['title']) || 'Shared points';
+    case 'points_received': {
+      const from = pickString(td, ['sender_name']);
+      return from ? `Points from ${from}` : 'Points received';
+    }
     default:
       return type ? type.replace(/_/g, ' ') : 'Transaction';
   }
@@ -149,6 +153,11 @@ export function mapServerTransactionToTx(row: ServerTransaction): Tx {
       const spent = Number(td.points_spent);
       if (Number.isFinite(spent) && spent > 0) {
         pts = `-${Math.round(spent)} pts`;
+      }
+    } else if (txType === 'points_received') {
+      const received = Number(td.points_received);
+      if (Number.isFinite(received) && received > 0) {
+        pts = `+${Math.round(received)} pts`;
       }
     } else if (Number.isFinite(amountNum) && amountNum > 0) {
       pts = formatPointsEarned(pointsForAmount(amountNum));
