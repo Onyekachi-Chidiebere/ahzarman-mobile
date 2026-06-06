@@ -12,6 +12,7 @@ export type ServerTransaction = {
   status: string;
   provider_transaction_id?: string | null;
   transaction_data?: Record<string, unknown> | null;
+  meter_token?: string | null;
   date_created?: string;
   date_completed?: string | null;
 };
@@ -138,7 +139,12 @@ export function mapServerTransactionToTx(row: ServerTransaction): Tx {
 
   let pts: string | undefined;
   if (status === 'Successful') {
-    if (txType === 'points_redeem' || txType === 'points_share') {
+    if (txType === 'points_redeem') {
+      const spent = Number(td.points_spent);
+      if (row.meter_token && Number.isFinite(spent) && spent > 0) {
+        pts = `-${Math.round(spent)} pts`;
+      }
+    } else if (txType === 'points_share') {
       const spent = Number(td.points_spent);
       if (Number.isFinite(spent) && spent > 0) {
         pts = `-${Math.round(spent)} pts`;
