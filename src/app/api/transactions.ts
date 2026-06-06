@@ -39,6 +39,7 @@ function mapStatus(status: string): Tx['status'] {
 
 function mapType(transactionType: string): Tx['type'] {
   const t = String(transactionType || '').toLowerCase();
+  if (t === 'points_redeem' || t === 'points_share') return 'points';
   if (t === 'gift_card' || t === 'gift_card_sale') return 'giftcard';
   if (t === 'betting_funding' || t === 'betting') return 'betting';
   const allowed: Tx['type'][] = [
@@ -115,6 +116,12 @@ function buildTitle(row: ServerTransaction): string {
       return pickString(td, ['product_name', 'title']) || 'Gift card';
     case 'betting_funding':
       return pickString(td, ['description', 'account']) || 'Betting';
+    case 'points_redeem': {
+      const m = pickString(td, ['meter']);
+      return m ? `Redeemed for electricity — ${m}` : 'Points redeemed for electricity';
+    }
+    case 'points_share':
+      return pickString(td, ['title']) || 'Shared points';
     default:
       return type ? type.replace(/_/g, ' ') : 'Transaction';
   }
@@ -124,10 +131,22 @@ export function mapServerTransactionToTx(row: ServerTransaction): Tx {
   const status = mapStatus(row.status);
   const amountNum =
     typeof row.amount === 'string' ? Number(row.amount.replace(/,/g, '')) : Number(row.amount);
-  const pts =
-    status === 'Successful' && Number.isFinite(amountNum) && amountNum > 0
-      ? formatPointsEarned(pointsForAmount(amountNum))
-      : undefined;
+  const td = (row.transaction_data && typeof row.transaction_data === 'object'
+    ? row.transaction_data
+    : {}) as Record<string, unknown>;
+  const txType = String(row.transaction_type || '').toLowerCase();
+
+  let pts: string | undefined;
+  if (status === 'Successful') {
+    if (txType === 'points_redeem' || txType === 'points_share') {
+      const spent = Number(td.points_spent);
+      if (Number.isFinite(spent) && spent > 0) {
+        pts = `-${Math.round(spent)} pts`;
+      }
+    } else if (Number.isFinite(amountNum) && amountNum > 0) {
+      pts = formatPointsEarned(pointsForAmount(amountNum));
+    }
+  }
 
   return {
     id: String(row.id),

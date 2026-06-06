@@ -1,57 +1,155 @@
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import type { AuthUser } from '../api/auth';
+import { apiErrorMessage } from '../api/client';
+import { redeemPointsForElectricity } from '../api/pointsRedeem';
+import {
+  getSavedMeters,
+  maskMeterNumber,
+  type SavedMeter,
+} from '../api/savedMeters';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import type { Disco } from '../discos';
+import { ELECTRICITY_DISCOS } from '../discos';
 import { NumPad } from '../NumPad';
 import type { AppScreen } from '../types';
 
 const grey = C.muted;
 
+function findDiscoById(discoId: string): Disco | null {
+  return ELECTRICITY_DISCOS.find(d => d.id === discoId) ?? null;
+}
+
 export function RedeemPointsScreen({
   goTo,
   userPoints,
-  onSpendPoints,
+  authUser,
+  authToken,
+  onRedeemSuccess,
 }: {
   goTo: (s: AppScreen) => void;
   userPoints: number;
-  onSpendPoints: (title: string, amount: number) => void;
+  authUser: AuthUser | null;
+  authToken: string | null;
+  onRedeemSuccess: () => void | Promise<void>;
 }) {
   const [meter, setMeter] = useState('');
+  const [disco, setDisco] = useState<Disco | null>(null);
+  const [discoCode, setDiscoCode] = useState('');
   const [pts, setPts] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState('');
   const [pinErr, setPinErr] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [remainingPts, setRemainingPts] = useState(0);
+  const [savedMeters, setSavedMeters] = useState<SavedMeter[]>([]);
+  const [loadingSavedMeters, setLoadingSavedMeters] = useState(false);
+  const [selectedSavedMeterId, setSelectedSavedMeterId] = useState<string | null>(null);
+  const [showDiscoSheet, setShowDiscoSheet] = useState(false);
+
+  const loadSavedMeters = useCallback(async () => {
+    if (!authUser?.id || !authToken) {
+      setSavedMeters([]);
+      return;
+    }
+    setLoadingSavedMeters(true);
+    try {
+      const list = await getSavedMeters(authUser.id, authToken);
+      setSavedMeters(list);
+    } catch {
+      // Non-blocking
+    } finally {
+      setLoadingSavedMeters(false);
+    }
+  }, [authUser?.id, authToken]);
+
+  useEffect(() => {
+    void loadSavedMeters();
+  }, [loadSavedMeters]);
 
   const ptsNum = parseInt(pts || '0', 10);
   const nairaVal = ptsNum;
-  const valid = meter.length >= 11 && ptsNum >= 100 && ptsNum <= userPoints;
+  const hasDisco = !!disco && !!discoCode;
+  const valid =
+    !!authUser &&
+    meter.length >= 11 &&
+    hasDisco &&
+    ptsNum >= 100 &&
+    ptsNum <= userPoints;
+
+  const applySavedMeter = (saved: SavedMeter) => {
+    const matchedDisco = findDiscoById(saved.disco_id);
+    if (!matchedDisco) {
+      Alert.alert('DisCo unavailable', 'This saved meter uses a distribution company that is no longer listed.');
+      return;
+    }
+    setDisco(matchedDisco);
+    setDiscoCode(saved.disco);
+    setMeter(saved.meter);
+    setSelectedSavedMeterId(saved.id);
+  };
+
+  const clearMeterSelection = () => {
+    setMeter('');
+    setDisco(null);
+    setDiscoCode('');
+    setSelectedSavedMeterId(null);
+  };
+
+  const submitRedemption = async (pinValue: string) => {
+    if (!authUser || !valid) return;
+    setSubmitting(true);
+    setPinErr('');
+    try {
+      const result = await redeemPointsForElectricity(authToken, {
+        meter,
+        disco: discoCode,
+        disco_id: disco?.id,
+        points: ptsNum,
+        pin: pinValue,
+      });
+      setRemainingPts(result.remaining_points);
+      await onRedeemSuccess();
+      setShowPin(false);
+      setPin('');
+      setDone(true);
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Redemption failed'));
+      setPin('');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleDigit = (d: string) => {
-    if (pin.length >= 4) return;
+    if (submitting || pin.length >= 4) return;
     const next = pin + d;
     setPin(next);
     setPinErr('');
     if (next.length === 4) {
-      if (next === '1234') {
-        setTimeout(() => {
-          onSpendPoints(`Redeemed for electricity — ${meter}`, ptsNum);
-          setShowPin(false);
-          setDone(true);
-          setPin('');
-        }, 400);
-      } else {
-        setTimeout(() => {
-          setPinErr('Incorrect PIN. Try again.');
-          setPin('');
-        }, 600);
-      }
+      void submitRedemption(next);
     }
   };
 
   const openPin = () => {
     if (!valid) return;
+    if (!authUser) {
+      Alert.alert('Sign in required', 'Please sign in to redeem points.');
+      return;
+    }
     setPin('');
     setPinErr('');
     setShowPin(true);
@@ -81,7 +179,7 @@ export function RedeemPointsScreen({
           </Text>
         </View>
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceBig}>{(userPoints - ptsNum).toLocaleString()} pts</Text>
+          <Text style={styles.balanceBig}>{remainingPts.toLocaleString()} pts</Text>
           <Text style={styles.balanceLbl}>Your remaining balance</Text>
         </View>
         <Pressable onPress={() => goTo('home')} style={styles.primaryBtn}>
@@ -113,16 +211,93 @@ export function RedeemPointsScreen({
           <Text style={styles.convHint}>Min redemption: 100 pts</Text>
         </View>
 
+        {authUser && savedMeters.length > 0 ? (
+          <View style={styles.savedSection}>
+            <View style={styles.savedHead}>
+              <Text style={styles.fieldLbl}>Saved meters</Text>
+              {selectedSavedMeterId ? (
+                <Pressable onPress={clearMeterSelection} hitSlop={8}>
+                  <Text style={styles.useNewTxt}>Use new meter</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {loadingSavedMeters ? (
+              <ActivityIndicator size="small" color={grey} style={{ marginBottom: 8 }} />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedRow}>
+                {savedMeters.map(saved => {
+                  const sel = selectedSavedMeterId === saved.id;
+                  return (
+                    <Pressable
+                      key={saved.id}
+                      onPress={() => applySavedMeter(saved)}
+                      style={[styles.savedChip, sel ? styles.savedChipSel : null]}
+                    >
+                      <Text style={[styles.savedName, sel && { color: C.olive }]} numberOfLines={1}>
+                        {saved.customer_name}
+                      </Text>
+                      <Text style={styles.savedMeta} numberOfLines={1}>
+                        {saved.disco_id} · {maskMeterNumber(saved.meter)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
+
+        {!selectedSavedMeterId ? (
+          <>
+            <Text style={styles.fieldLbl}>Distribution company</Text>
+            <Pressable
+              onPress={() => setShowDiscoSheet(true)}
+              style={[styles.discoSelect, disco ? { borderColor: '#C8D080' } : null]}
+            >
+              {disco ? (
+                <>
+                  <View style={styles.discoBadge}>
+                    <Text style={styles.discoBadgeTxt}>{disco.id}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.discoName}>{disco.name}</Text>
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.discoPlaceholder}>Select your distribution company</Text>
+              )}
+              <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                <Path d="M6 9l6 6 6-6" stroke={grey} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </Pressable>
+          </>
+        ) : disco ? (
+          <View style={styles.selectedDiscoBox}>
+            <Text style={styles.selectedDiscoLbl}>DisCo</Text>
+            <Text style={styles.selectedDiscoVal}>{disco.name}</Text>
+          </View>
+        ) : null}
+
         <Text style={styles.fieldLbl}>Meter Number</Text>
         <TextInput
           style={styles.input}
           placeholder="Enter your prepaid meter number"
           placeholderTextColor={C.placeholder}
           value={meter}
-          onChangeText={v => setMeter(v.replace(/\D/g, '').slice(0, 13))}
+          onChangeText={v => {
+            setMeter(v.replace(/\D/g, '').slice(0, 13));
+            setSelectedSavedMeterId(null);
+            if (selectedSavedMeterId) {
+              setDisco(null);
+              setDiscoCode('');
+            }
+          }}
           keyboardType="number-pad"
+          editable={!selectedSavedMeterId}
         />
-        <Text style={styles.hint}>Enter your prepaid meter number</Text>
+        <Text style={styles.hint}>
+          {selectedSavedMeterId ? 'Using a saved meter' : 'Select a saved meter or enter details manually'}
+        </Text>
 
         <Text style={styles.fieldLbl}>Points to Redeem</Text>
         <TextInput
@@ -147,20 +322,80 @@ export function RedeemPointsScreen({
           </View>
         ) : null}
 
-        <Pressable disabled={!valid} onPress={openPin} style={[styles.primaryBtn, !valid && styles.btnDisabled]}>
-          <Text style={styles.primaryBtnTxt}>
-            {valid
-              ? `Redeem ${ptsNum.toLocaleString()} pts for ₦${nairaVal.toLocaleString()}`
-              : 'Complete fields to continue'}
-          </Text>
+        <Pressable
+          disabled={!valid || submitting}
+          onPress={openPin}
+          style={[styles.primaryBtn, (!valid || submitting) && styles.btnDisabled]}
+        >
+          {submitting ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <Text style={styles.primaryBtnTxt}>
+              {valid
+                ? `Redeem ${ptsNum.toLocaleString()} pts for ₦${nairaVal.toLocaleString()}`
+                : 'Complete fields to continue'}
+            </Text>
+          )}
         </Pressable>
-        <Text style={styles.demoHint}>
-          Demo PIN: <Text style={{ fontWeight: '700', color: C.ink }}>1234</Text>
-        </Text>
+        <Text style={styles.pinHint}>Confirm with your 4-digit login PIN</Text>
       </ScrollView>
 
-      <Modal visible={showPin} transparent animationType="slide" onRequestClose={() => { setShowPin(false); setPin(''); setPinErr(''); }}>
-        <Pressable style={styles.pinOverlay} onPress={() => { setShowPin(false); setPin(''); setPinErr(''); }}>
+      <Modal
+        visible={showDiscoSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDiscoSheet(false)}
+      >
+        <Pressable style={styles.sheetOverlay} onPress={() => setShowDiscoSheet(false)}>
+          <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.sheetGrab} />
+            <Text style={styles.sheetTitle}>Select DisCo</Text>
+            <ScrollView style={styles.sheetList}>
+              {ELECTRICITY_DISCOS.map(d => (
+                <Pressable
+                  key={d.id}
+                  onPress={() => {
+                    setDisco(d);
+                    setDiscoCode(d.buypowerCode ?? d.id);
+                    setShowDiscoSheet(false);
+                    setSelectedSavedMeterId(null);
+                  }}
+                  style={[styles.sheetRow, disco?.id === d.id ? styles.sheetRowSel : null]}
+                >
+                  <Text style={styles.sheetDiscoId}>{d.id}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sheetDiscoName}>{d.name}</Text>
+                    <Text style={styles.sheetDiscoShort}>{d.short}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showPin}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!submitting) {
+            setShowPin(false);
+            setPin('');
+            setPinErr('');
+          }
+        }}
+      >
+        <Pressable
+          style={styles.pinOverlay}
+          onPress={() => {
+            if (!submitting) {
+              setShowPin(false);
+              setPin('');
+              setPinErr('');
+            }
+          }}
+        >
           <Pressable style={styles.pinSheet} onPress={e => e.stopPropagation()}>
             <View style={styles.grabber} />
             <Text style={styles.pinTitle}>Confirm with PIN</Text>
@@ -179,17 +414,28 @@ export function RedeemPointsScreen({
                 />
               ))}
             </View>
+            {submitting ? <ActivityIndicator color={C.primary} style={{ marginBottom: 8 }} /> : null}
             {pinErr ? (
               <View style={styles.errBox}>
                 <Text style={styles.errTxt}>{pinErr}</Text>
               </View>
             ) : null}
-            <NumPad onDigit={handleDigit} onDelete={() => { setPin(p => p.slice(0, -1)); setPinErr(''); }} />
+            <NumPad
+              onDigit={handleDigit}
+              onDelete={() => {
+                if (!submitting) {
+                  setPin(p => p.slice(0, -1));
+                  setPinErr('');
+                }
+              }}
+            />
             <Pressable
               onPress={() => {
-                setShowPin(false);
-                setPin('');
-                setPinErr('');
+                if (!submitting) {
+                  setShowPin(false);
+                  setPin('');
+                  setPinErr('');
+                }
               }}
               style={styles.cancelBtn}
             >
@@ -263,6 +509,61 @@ const styles = StyleSheet.create({
   convTitle: { fontSize: 13, fontWeight: '600', color: C.ink, marginBottom: 8 },
   convRate: { fontSize: 22, fontWeight: '700', color: C.primary },
   convHint: { fontSize: 12, color: grey, marginTop: 4 },
+  savedSection: { marginBottom: 12 },
+  savedHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  useNewTxt: { fontSize: 12, fontWeight: '600', color: C.olive },
+  savedRow: { gap: 8, paddingBottom: 4 },
+  savedChip: {
+    minWidth: 120,
+    maxWidth: 160,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: C.white,
+  },
+  savedChipSel: { borderColor: C.primary, backgroundColor: C.primFaint },
+  savedName: { fontSize: 13, fontWeight: '600', color: C.ink },
+  savedMeta: { fontSize: 10, color: grey, marginTop: 2 },
+  discoSelect: {
+    height: 52,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    backgroundColor: C.white,
+    marginBottom: 12,
+  },
+  discoBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    backgroundColor: C.primXlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discoBadgeTxt: { fontSize: 9, fontWeight: '700', color: C.olive, textAlign: 'center' },
+  discoName: { fontSize: 14, fontWeight: '600', color: C.ink },
+  discoPlaceholder: { flex: 1, fontSize: 14, color: C.placeholder },
+  selectedDiscoBox: {
+    backgroundColor: C.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 12,
+    marginBottom: 12,
+  },
+  selectedDiscoLbl: { fontSize: 11, color: grey, marginBottom: 2 },
+  selectedDiscoVal: { fontSize: 14, fontWeight: '600', color: C.ink },
   fieldLbl: { fontSize: 11, fontWeight: '500', color: grey, marginBottom: 6 },
   input: {
     height: 52,
@@ -295,7 +596,7 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
   primaryBtnTxt: { color: C.ink, fontSize: 15, fontWeight: '700' },
-  demoHint: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 12 },
+  pinHint: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 12 },
   pinOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -326,4 +627,48 @@ const styles = StyleSheet.create({
   errTxt: { fontSize: 13, fontWeight: '500', color: C.error, textAlign: 'center' },
   cancelBtn: { marginTop: 8, paddingVertical: 12, alignItems: 'center' },
   cancelTxt: { fontSize: 14, fontWeight: '500', color: grey },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+    paddingBottom: 24,
+  },
+  sheetGrab: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E0E0E0',
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: C.ink,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  sheetList: { paddingHorizontal: 16 },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    marginBottom: 8,
+  },
+  sheetRowSel: { borderColor: C.primary, backgroundColor: C.primFaint },
+  sheetDiscoId: { fontSize: 10, fontWeight: '700', color: C.olive, width: 52 },
+  sheetDiscoName: { fontSize: 14, fontWeight: '600', color: C.ink },
+  sheetDiscoShort: { fontSize: 11, color: grey },
 });

@@ -277,7 +277,13 @@ export function AhzarmanApp() {
         <SharePointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
       ) : null}
       {screen === 'redeem_points' ? (
-        <RedeemPointsScreen goTo={goTo} userPoints={userPoints} onSpendPoints={recordPointsSpend} />
+        <RedeemPointsScreen
+          goTo={goTo}
+          userPoints={userPoints}
+          authUser={authUser}
+          authToken={authToken}
+          onRedeemSuccess={refreshTransactions}
+        />
       ) : null}
       {screen === 'refer' ? <ReferScreen goTo={goTo} goBack={goBack} /> : null}
       {screen === 'estate_account' ? (

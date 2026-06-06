@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { ApiError } from '../api/client';
+import { ApiError, apiErrorMessage } from '../api/client';
 import { checkElectricityMeter } from '../api/electricity';
 import {
   mapMeterCheckToCustomerName,
@@ -514,8 +514,7 @@ export function ElectricityScreen({
                 status: 'Successful',
               });
             } catch (e) {
-              const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete purchase';
-              Alert.alert('Purchase failed', msg);
+              Alert.alert('Purchase failed', apiErrorMessage(e, 'Could not complete purchase'));
             } finally {
               setPaying(false);
             }

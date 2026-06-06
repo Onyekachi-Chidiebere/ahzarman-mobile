@@ -50,6 +50,21 @@ export async function apiRequest<T>(path: string, opts: RequestOpts = {}): Promi
   return json as T;
 }
 
+/** Prefer BuyPower provider text, then server message, then fallback. */
+export function apiErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    if (e.body && typeof e.body === 'object') {
+      const b = e.body as { buypower_message?: string };
+      if (typeof b.buypower_message === 'string' && b.buypower_message.trim()) {
+        return b.buypower_message.trim();
+      }
+    }
+    if (e.message.trim()) return e.message.trim();
+  }
+  if (e instanceof Error && e.message.trim()) return e.message.trim();
+  return fallback;
+}
+
 /** Throws when the server returns HTTP 200 with `{ success: false }`. */
 export function assertApiSuccess<T extends { success?: boolean; message?: string }>(res: T): T {
   if (res && typeof res === 'object' && res.success === false) {
