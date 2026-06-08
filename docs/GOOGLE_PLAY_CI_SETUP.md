@@ -205,6 +205,7 @@ If you already published `versionCode 1` manually, either:
 
 | Error | Fix |
 |-------|-----|
+| `Could not find org.asyncstorage.shared_storage:storage-android:1.0.0` | Upgrade `@react-native-async-storage/async-storage` to **3.1.0+**, or ensure `android/build.gradle` includes the async-storage `local_repo` maven URL |
 | `Missing secret: ANDROID_KEYSTORE_BASE64` | Add all 4 keystore secrets |
 | `403` / permission denied on upload | Service account not granted in Play Console API access |
 | `Version code X has already been used` | Bump versionCode in workflow |

@@ -1359,10 +1359,10 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
-"@react-native-async-storage/async-storage@^3.0.2":
-  version "3.0.2"
-  resolved "https://registry.npmjs.org/@react-native-async-storage/async-storage/-/async-storage-3.0.2.tgz"
-  integrity sha512-XP0zDIl+1XoeuQ7f878qXKdl77zLwzLALPpxvNRc7ZtDh9ew36WSvOdQOhFkexMySapFAWxEbZxS8K8J2DU4eg==
+"@react-native-async-storage/async-storage@^3.1.1":
+  version "3.1.1"
+  resolved "https://registry.npmjs.org/@react-native-async-storage/async-storage/-/async-storage-3.1.1.tgz"
+  integrity sha512-z+PnLz1n6ECKhgoHZHkfc+dijXZEyZnNFSajbtE0NEbsJhmX8x9GlOeiMQIKX2E4DUqPSgfIh4FYBv1M49KgPQ==
   dependencies:
     idb "8.0.3"
 
