@@ -131,6 +131,7 @@ All items from the table at the top.
 
 | Error | Fix |
 |-------|-----|
+| Profile team does not match `IOS_TEAM_ID` | Set `IOS_TEAM_ID` to the **Team ID on your provisioning profile** (Apple Developer → Membership). Remove duplicate/wrong value from **Variables** if you also use **Secrets**. |
 | Profile bundle does not match `IOS_BUNDLE_ID` | Profile must be for **`com.ahzarman`**; re-download after fixing Xcode bundle ID |
 | Missing `IOS_TEAM_ID` | Add Team ID under **Variables** or **Secrets** (both work) |
 | Missing `GOOGLE_SERVICE_INFO_PLIST` | Add Firebase plist contents as secret |

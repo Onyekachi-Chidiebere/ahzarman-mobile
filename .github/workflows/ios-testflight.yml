@@ -17,7 +17,7 @@ env:
   IOS_WORKSPACE: ios/ahzarman.xcworkspace
   IOS_SCHEME: ahzarman
   IOS_BUNDLE_ID: com.ahzarman
-  IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID || secrets.IOS_TEAM_ID }}
+  IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID || vars.IOS_TEAM_ID }}
   IOS_CODE_SIGN_IDENTITY: Apple Distribution
   IOS_VERSION_NAME: ${{ vars.APP_VERSION_NAME || '1.0.0' }}
 
@@ -85,31 +85,40 @@ jobs:
           PP_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PP_PLIST")
           PP_APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$PP_PLIST")
 
-          if /usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix" "$PP_PLIST" >/dev/null 2>&1; then
-            PP_TEAM=$(/usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix:0" "$PP_PLIST")
-          elif /usr/libexec/PlistBuddy -c "Print TeamIdentifier" "$PP_PLIST" >/dev/null 2>&1; then
+          if /usr/libexec/PlistBuddy -c "Print TeamIdentifier" "$PP_PLIST" >/dev/null 2>&1; then
             PP_TEAM=$(/usr/libexec/PlistBuddy -c "Print TeamIdentifier:0" "$PP_PLIST")
+          elif /usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix" "$PP_PLIST" >/dev/null 2>&1; then
+            PP_TEAM=$(/usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix:0" "$PP_PLIST")
           else
             PP_TEAM="${PP_APP_ID%%.*}"
           fi
 
           PP_BUNDLE_ID="${PP_APP_ID#${PP_TEAM}.}"
+          CONFIG_TEAM="$(echo -n "${IOS_TEAM_ID:-}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          PP_TEAM_NORM="$(echo -n "$PP_TEAM" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
 
           echo "Installed profile name: $PP_NAME"
           echo "Installed profile UUID: $PP_UUID"
           echo "Profile team ID: $PP_TEAM"
           echo "Profile app identifier: $PP_APP_ID"
           echo "Profile bundle ID: $PP_BUNDLE_ID"
+          echo "Configured IOS_TEAM_ID length: ${#CONFIG_TEAM} (expect 10)"
 
-          if [ -z "$IOS_TEAM_ID" ]; then
-            echo "Missing IOS_TEAM_ID. Add it as a GitHub Actions variable or secret (Settings → Secrets and variables → Actions)."
+          if [ -z "$CONFIG_TEAM" ]; then
+            echo "Missing IOS_TEAM_ID. Add it as a GitHub Actions secret or variable (Settings → Secrets and variables → Actions)."
+            echo "Find it at developer.apple.com → Account → Membership → Team ID."
             exit 1
           fi
 
-          if [ "$PP_TEAM" != "$IOS_TEAM_ID" ]; then
-            echo "Profile team ($PP_TEAM) does not match IOS_TEAM_ID ($IOS_TEAM_ID)"
+          if [ "$PP_TEAM_NORM" != "$CONFIG_TEAM" ]; then
+            echo "Profile team ($PP_TEAM) does not match IOS_TEAM_ID ($CONFIG_TEAM)"
+            echo "Your provisioning profile was issued for team $PP_TEAM."
+            echo "Update the IOS_TEAM_ID secret/variable to that exact value, or re-download a profile for your configured team."
+            echo "If IOS_TEAM_ID exists in both Variables and Secrets, the secret is used first."
             exit 1
           fi
+
+          echo "IOS_TEAM_ID=$CONFIG_TEAM" >> "$GITHUB_ENV"
 
           if [ "$PP_BUNDLE_ID" != "$IOS_BUNDLE_ID" ]; then
             echo "Profile bundle ($PP_BUNDLE_ID) does not match IOS_BUNDLE_ID ($IOS_BUNDLE_ID)"
