@@ -17,7 +17,7 @@ env:
   IOS_WORKSPACE: ios/ahzarman.xcworkspace
   IOS_SCHEME: ahzarman
   IOS_BUNDLE_ID: com.ahzarman
-  IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+  IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID || secrets.IOS_TEAM_ID }}
   IOS_CODE_SIGN_IDENTITY: Apple Distribution
   IOS_VERSION_NAME: ${{ vars.APP_VERSION_NAME || '1.0.0' }}
 
@@ -102,7 +102,7 @@ jobs:
           echo "Profile bundle ID: $PP_BUNDLE_ID"
 
           if [ -z "$IOS_TEAM_ID" ]; then
-            echo "Missing GitHub variable IOS_TEAM_ID (Apple Developer Team ID)"
+            echo "Missing IOS_TEAM_ID. Add it as a GitHub Actions variable or secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
 

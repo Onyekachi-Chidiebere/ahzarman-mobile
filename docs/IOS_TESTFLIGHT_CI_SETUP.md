@@ -9,7 +9,7 @@ Runs on push to `main` or manual **workflow_dispatch**.
 
 | Name | Type | Where it comes from |
 |------|------|---------------------|
-| `IOS_TEAM_ID` | **Variable** | [Apple Developer](https://developer.apple.com/account) → Membership → Team ID |
+| `IOS_TEAM_ID` | **Variable or secret** | [Apple Developer](https://developer.apple.com/account) → Membership → Team ID |
 | `APP_VERSION_NAME` | Variable (optional) | e.g. `1.0.0` (matches Android `APP_VERSION_NAME`) |
 | `IOS_CERTIFICATE_P12_BASE64` | Secret | Distribution certificate exported as `.p12` |
 | `IOS_CERTIFICATE_P12_PASSWORD` | Secret | Password used when exporting `.p12` |
@@ -102,11 +102,12 @@ Add secret **`GOOGLE_SERVICE_INFO_PLIST`** = entire file contents (plain text).
 
 **Settings → Secrets and variables → Actions**
 
-### Variables
-| Name | Example |
-|------|---------|
-| `IOS_TEAM_ID` | `ABCDE12345` |
-| `APP_VERSION_NAME` | `1.0.0` |
+### Variables (or secrets for `IOS_TEAM_ID`)
+
+| Name | Example | Where |
+|------|---------|--------|
+| `IOS_TEAM_ID` | `ABCDE12345` | **Variables** tab *or* **Secrets** tab |
+| `APP_VERSION_NAME` | `1.0.0` | **Variables** tab |
 
 ### Secrets
 All items from the table at the top.
@@ -118,7 +119,7 @@ All items from the table at the top.
 - [ ] App ID `com.ahzarman` registered in Apple Developer
 - [ ] App created in App Store Connect with same bundle ID
 - [ ] Distribution certificate + App Store profile created
-- [ ] `IOS_TEAM_ID` variable set in GitHub
+- [ ] `IOS_TEAM_ID` set in GitHub (variable or secret)
 - [ ] 3 signing secrets in GitHub (p12, p12 password, profile)
 - [ ] 3 App Store Connect API secrets
 - [ ] `GOOGLE_SERVICE_INFO_PLIST` secret (Firebase)
@@ -131,7 +132,7 @@ All items from the table at the top.
 | Error | Fix |
 |-------|-----|
 | Profile bundle does not match `IOS_BUNDLE_ID` | Profile must be for **`com.ahzarman`**; re-download after fixing Xcode bundle ID |
-| Missing `IOS_TEAM_ID` | Add Team ID as a GitHub **variable** |
+| Missing `IOS_TEAM_ID` | Add Team ID under **Variables** or **Secrets** (both work) |
 | Missing `GOOGLE_SERVICE_INFO_PLIST` | Add Firebase plist contents as secret |
 | API authentication failed (401) | Issuer ID, Key ID, and `.p8` must be from the **same** API key |
 | Code Sign error / No profile | Distribution cert expired, wrong profile type, or profile not for `com.ahzarman` |
