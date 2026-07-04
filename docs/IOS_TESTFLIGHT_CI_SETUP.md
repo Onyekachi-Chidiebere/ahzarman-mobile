@@ -137,7 +137,7 @@ All items from the table at the top.
 | Missing `GOOGLE_SERVICE_INFO_PLIST` | Add Firebase plist contents as secret |
 | API authentication failed (401) | Issuer ID, Key ID, and `.p8` must be from the **same** API key |
 | Code Sign error / No profile | Distribution cert expired, wrong profile type, or profile not for `com.ahzarman` |
-| `macos-26` runner unavailable | Change `runs-on` in workflow to `macos-15` or latest available macOS image |
+| `RCTSwiftUIWrapper does not support provisioning profiles` | Fixed in `Podfile` — pod targets disable code signing; only the `ahzarman` app target uses manual signing in CI |
 
 ---
 

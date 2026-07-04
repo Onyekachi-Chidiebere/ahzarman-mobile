@@ -36,5 +36,28 @@ target 'ahzarman' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # CocoaPods / RN targets must not use manual provisioning profiles (CI sets those on the app only).
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        build_config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        build_config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+        build_config.build_settings['CODE_SIGN_IDENTITY'] = ''
+        build_config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ''
+        build_config.build_settings['PROVISIONING_PROFILE'] = ''
+      end
+    end
+
+    installer.generated_projects.each do |project|
+      project.targets.each do |target|
+        target.build_configurations.each do |build_config|
+          build_config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          build_config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+          build_config.build_settings['CODE_SIGN_IDENTITY'] = ''
+          build_config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ''
+          build_config.build_settings['PROVISIONING_PROFILE'] = ''
+        end
+      end
+    end
   end
 end

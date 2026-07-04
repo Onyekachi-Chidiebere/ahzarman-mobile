@@ -157,7 +157,11 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$IOS_CODE_SIGN_IDENTITY" \
             DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
-            PROVISIONING_PROFILE="$IOS_PROFILE_UUID" \
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID" \
+            "CODE_SIGN_STYLE[sdk=iphoneos*]=Manual" \
+            "CODE_SIGN_IDENTITY[sdk=iphoneos*]=$IOS_CODE_SIGN_IDENTITY" \
+            "DEVELOPMENT_TEAM[sdk=iphoneos*]=$IOS_TEAM_ID" \
+            "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]=$IOS_PROFILE_UUID" \
             MARKETING_VERSION="$IOS_VERSION_NAME" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             archive 2>&1 | tee build/archive.log
