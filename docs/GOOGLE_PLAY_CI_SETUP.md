@@ -14,6 +14,7 @@ This guide explains **where every GitHub secret and variable comes from**.
 | `ANDROID_KEY_ALIAS` | Secret | Alias you chose (e.g. `ahzarman`) |
 | `ANDROID_KEY_PASSWORD` | Secret | Key password you chose (often same as keystore password) |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Secret | Google Cloud Console → download JSON key |
+| `GOOGLE_SERVICES_JSON` | Secret | Firebase Console → Android app → `google-services.json` (full file contents) |
 | `APP_VERSION_NAME` | Variable (optional) | You choose (e.g. `1.0.0`) |
 | `PLAY_STORE_TRACK` | Variable (optional) | You choose: `internal`, `alpha`, `beta`, or `production` |
 
@@ -80,10 +81,22 @@ You may only see “Opt in to Play App Signing” or no upload key section until
 **If you already have an upload key registered**, export and compare (optional):
 
 ```bash
+cd ahzarman
 keytool -export -rfc \
-  -keystore ~/Desktop/ahzarman-upload.keystore \
+  -keystore android/ahzarman-upload.keystore \
   -alias ahzarman \
-  -file upload_certificate.pem
+  -storepass 'ahzarman@2026' \
+  -file android/upload_certificate.pem
+```
+
+Or list fingerprints (SHA-1 / SHA-256) for Firebase:
+
+```bash
+keytool -list -v \
+  -keystore android/ahzarman-upload.keystore \
+  -alias ahzarman \
+  -storepass 'ahzarman@2026' \
+  -keypass 'ahzarman@2026'
 ```
 
 On **Manage Play App Signing**, check the **Upload key certificate** section — SHA-1 should match your keystore if already registered.
@@ -135,17 +148,34 @@ Copy the **entire file contents** (open in TextEdit/VS Code, select all) into Gi
 
 `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`
 
-### Step 3: Link service account in Play Console
+### Step 3: Grant Play Console access (required — fixes “caller does not have permission”)
 
-1. Play Console → use the **top search bar** and type **API access**, or go to **Setup** → **API access** (location varies by account)
-2. If asked, **Link** your Google Cloud project
-3. Under **Service accounts**, find `github-play-deploy@....iam.gserviceaccount.com`
-4. **Grant access** (or **Invite user**)
-5. Permissions — for automated uploads, enable at least:
-   - **Release apps to testing tracks** (internal/alpha/beta)
-   - When ready for production: **Release to production, exclude devices, and use Play App Signing**
+Play Console no longer uses a separate **API access** menu on many accounts. Use **Users and permissions**:
 
-Save. It can take a few minutes for permissions to apply.
+1. Open [Play Console](https://play.google.com/console) at the **developer account** level (not inside one app)
+2. Left sidebar → **Users and permissions**
+3. **Invite new users**
+4. Email = `client_email` from your JSON key (e.g. `github-play-deploy@your-project.iam.gserviceaccount.com`)
+5. Open the **App permissions** tab → **Add app** → select **Ahzarman** → **Apply**
+6. Enable these permissions for that app:
+   - **View app information and download bulk reports** (read-only baseline)
+   - **Release apps to testing tracks** ← **required** for `internal` / `alpha` / `beta` CI uploads
+   - Later for production: **Release to production, exclude devices, and use Play App Signing**
+7. Click **Invite user** / **Save**
+
+**Verify:** Users and permissions should list the service account with access to **Ahzarman** only.
+
+**Checklist if upload still fails:**
+
+| Check | Why |
+|-------|-----|
+| JSON `client_email` matches invited user exactly | Wrong JSON = wrong identity |
+| **Google Play Android Developer API** enabled in the same GCP project as the JSON key | API won’t work without it |
+| App **Ahzarman** added under **App permissions** (not just account invite) | Account-only invite is not enough |
+| **Release apps to testing tracks** is checked | Needed to create an Edit and upload to `internal` |
+| Wait 10–30 minutes after changing permissions | Google can take time to propagate |
+
+If still blocked, temporarily grant **Admin (all permissions)** to the service account for Ahzarman only, confirm CI works, then reduce permissions.
 
 ---
 
@@ -192,6 +222,7 @@ If you already published `versionCode 1` manually, either:
 - [ ] Keystore created and backed up
 - [ ] Upload certificate registered in Play Console → App signing
 - [ ] 4 keystore secrets in GitHub
+- [ ] `GOOGLE_SERVICES_JSON` secret in GitHub (Firebase Android config)
 - [ ] Play Android Developer API enabled in Cloud Console
 - [ ] Service account JSON downloaded
 - [ ] Service account granted access in Play Console → API access
@@ -207,7 +238,9 @@ If you already published `versionCode 1` manually, either:
 |-------|-----|
 | `Could not find org.asyncstorage.shared_storage:storage-android:1.0.0` | Upgrade `@react-native-async-storage/async-storage` to **3.1.0+**, or ensure `android/build.gradle` includes the async-storage `local_repo` maven URL |
 | `Missing secret: ANDROID_KEYSTORE_BASE64` | Add all 4 keystore secrets |
-| `403` / permission denied on upload | Service account not granted in Play Console API access |
+| `Missing secret: GOOGLE_SERVICES_JSON` | Add Firebase `google-services.json` contents as a GitHub secret |
+| `The caller does not have permission` on upload | Service account not in **Users and permissions**, or missing **Release apps to testing tracks** for app **Ahzarman**, or wrong JSON secret |
+| `403` / permission denied on upload | Same as above — fix Play Console user permissions |
 | `Version code X has already been used` | Bump versionCode in workflow |
 | Signing failed | Wrong keystore password or alias |
 | App not found | Package must be exactly `com.ahzarman` |

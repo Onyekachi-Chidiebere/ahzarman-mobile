@@ -2,6 +2,11 @@
 #
 .DS_Store
 .env
+
+# Firebase config (download from Firebase Console)
+android/app/google-services.json
+ios/ahzarman/GoogleService-Info.plist
+firebase-service-account.json
 # Xcode
 #
 build/

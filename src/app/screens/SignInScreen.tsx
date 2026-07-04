@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ApiError } from '../api/client';
 import type { AuthUser } from '../api/auth';
-import { login, resetPin, sendOtp, verifyOtp } from '../api/auth';
+import { login, resetPin } from '../api/auth';
+import { completePhoneVerification, startPhoneVerification } from '../api/phoneOtp';
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
@@ -55,7 +56,6 @@ function ForgotPinFlow({
   const [confirmPin, setConfirmPin] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
-  const [devHint, setDevHint] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,8 +63,7 @@ function ForgotPinFlow({
       setLoading(true);
       setErr('');
       try {
-        const r = await sendOtp(phone, 'reset_pin');
-        if (!cancelled && __DEV__ && r.debug_code) setDevHint(String(r.debug_code));
+        await startPhoneVerification(phone, 'reset_pin');
       } catch (e) {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : 'Could not send code');
       } finally {
@@ -84,7 +83,7 @@ function ForgotPinFlow({
     if (next.length === 6) {
       void (async () => {
         try {
-          await verifyOtp(phone, next, 'reset_pin');
+          await completePhoneVerification(phone, next, 'reset_pin');
           setStage('newpin');
         } catch (e) {
           setErr(e instanceof ApiError ? e.message : 'Wrong code');
@@ -147,7 +146,6 @@ function ForgotPinFlow({
             </View>
           ) : null}
           <NumPad onDigit={onOtpDigit} onDelete={() => { setOtp(v => v.slice(0, -1)); setErr(''); }} />
-          {__DEV__ && devHint ? <Text style={styles.demo}>Dev: use code {devHint}</Text> : null}
         </>
       ) : null}
 

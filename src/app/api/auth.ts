@@ -29,7 +29,7 @@ export type AuthPayload = { user: AuthUser; token: string };
 export type OnboardingSlide = { title: string; sub: string; art?: number };
 
 type Msg = { success: boolean; message?: string };
-type OtpSend = Msg & { debug_code?: string };
+type OtpSend = Msg & { delivery?: 'firebase' };
 type AuthResponse = { success: boolean; message?: string; data: AuthPayload };
 type MeResponse = { success: boolean; data: AuthUser };
 type OnboardingResponse = { success: boolean; data: { slides: OnboardingSlide[] } };
@@ -46,14 +46,14 @@ export async function sendOtp(phone: string, purpose: 'register' | 'reset_pin' =
   });
 }
 
-export async function verifyOtp(
+export async function verifyFirebaseOtp(
+  idToken: string,
   phone: string,
-  code: string,
   purpose: 'register' | 'reset_pin' = 'register',
 ) {
-  return apiRequest<Msg>('/auth/otp/verify', {
+  return apiRequest<Msg>('/auth/otp/verify-firebase', {
     method: 'POST',
-    body: JSON.stringify({ phone, code, purpose }),
+    body: JSON.stringify({ id_token: idToken, phone, purpose }),
   });
 }
 

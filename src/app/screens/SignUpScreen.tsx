@@ -9,7 +9,8 @@ import {
   View,
 } from 'react-native';
 import type { AuthUser } from '../api/auth';
-import { registerAccount, sendOtp, verifyOtp } from '../api/auth';
+import { registerAccount } from '../api/auth';
+import { completePhoneVerification, startPhoneVerification } from '../api/phoneOtp';
 import { ApiError } from '../api/client';
 import Svg, { Path } from 'react-native-svg';
 import { NumPad } from '../NumPad';
@@ -74,7 +75,6 @@ export function SignUpScreen({
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [devOtpHint, setDevOtpHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -176,8 +176,7 @@ export function SignUpScreen({
                 setApiErr('');
                 setSending(true);
                 try {
-                  const r = await sendOtp(phone, 'register');
-                  if (__DEV__ && r.debug_code) setDevOtpHint(String(r.debug_code));
+                  await startPhoneVerification(phone, 'register');
                   setStep(2);
                 } catch (e) {
                   setApiErr(e instanceof ApiError ? e.message : 'Could not send code');
@@ -233,9 +232,6 @@ export function SignUpScreen({
                 <Text style={styles.errTxt}>{apiErr}</Text>
               </View>
             ) : null}
-            {__DEV__ && devOtpHint ? (
-              <Text style={styles.demo}>Dev: use code {devOtpHint}</Text>
-            ) : null}
             <Pressable
               disabled={otp.length < 6 || verifying}
               onPress={async () => {
@@ -243,7 +239,7 @@ export function SignUpScreen({
                 setApiErr('');
                 setVerifying(true);
                 try {
-                  await verifyOtp(phone, otp, 'register');
+                  await completePhoneVerification(phone, otp, 'register');
                   setStep(3);
                 } catch (e) {
                   setApiErr(e instanceof ApiError ? e.message : 'Verification failed');
@@ -267,8 +263,7 @@ export function SignUpScreen({
                     setResendKey(k => k + 1);
                     void (async () => {
                       try {
-                        const r = await sendOtp(phone, 'register');
-                        if (__DEV__ && r.debug_code) setDevOtpHint(String(r.debug_code));
+                        await startPhoneVerification(phone, 'register');
                       } catch (e) {
                         setApiErr(e instanceof ApiError ? e.message : 'Could not resend');
                       }
