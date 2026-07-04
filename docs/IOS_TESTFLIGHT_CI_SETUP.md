@@ -137,6 +137,7 @@ All items from the table at the top.
 | Missing `GOOGLE_SERVICE_INFO_PLIST` | Add Firebase plist contents as secret |
 | API authentication failed (401) | Issuer ID, Key ID, and `.p8` must be from the **same** API key |
 | Code Sign error / No profile | Distribution cert expired, wrong profile type, or profile not for `com.ahzarman` |
+| Missing iPad icon `152x152` / `167x167` (90023) | Add iPad entries to `AppIcon.appiconset` (included in repo), or set `TARGETED_DEVICE_FAMILY = 1` for iPhone-only |
 | `conflicting provisioning settings` / `automatically signed, but provisioning profile` | Release uses **Manual** signing in `project.pbxproj`; only pass simple `CODE_SIGN_*` flags in the workflow (no `[sdk=iphoneos*]` overrides) |
 | `RCTSwiftUIWrapper does not support provisioning profiles` | Fixed in `Podfile` — pod targets disable code signing; only the `ahzarman` app target uses manual signing in CI |
 
