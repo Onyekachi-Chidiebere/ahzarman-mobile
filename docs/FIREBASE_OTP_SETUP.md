@@ -32,7 +32,7 @@ The server still enforces business rules (number not already registered for sign
 2. **Authentication → Sign-in method → Phone** — enable Phone.
 3. Add your apps:
    - **Android** — package name: `com.ahzarman`
-   - **iOS** — bundle ID from Xcode (default target: `ahzarman`)
+   - **iOS** — bundle ID: `com.ahzarman`
 
 ### Android SHA fingerprints
 

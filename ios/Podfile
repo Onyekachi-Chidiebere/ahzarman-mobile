@@ -1,5 +1,4 @@
 # Resolve react_native_pods.rb with node to allow for hoisting
-$RNFirebaseAsStaticFramework = true
 ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
 
 require Pod::Executable.execute_command('node', ['-p',
@@ -19,6 +18,10 @@ end
 
 target 'ahzarman' do
   config = use_native_modules!
+
+  # Required by @react-native-firebase (firebase-ios-sdk needs static frameworks)
+  use_frameworks! :linkage => :static
+  $RNFirebaseAsStaticFramework = true
 
   use_react_native!(
     :path => config[:reactNativePath],

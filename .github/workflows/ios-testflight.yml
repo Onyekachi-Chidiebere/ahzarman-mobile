@@ -1,0 +1,294 @@
+name: iOS Build & Deploy (TestFlight)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IOS_WORKSPACE: ios/ahzarman.xcworkspace
+  IOS_SCHEME: ahzarman
+  IOS_BUNDLE_ID: com.ahzarman
+  IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+  IOS_CODE_SIGN_IDENTITY: Apple Distribution
+  IOS_VERSION_NAME: ${{ vars.APP_VERSION_NAME || '1.0.0' }}
+
+jobs:
+  build:
+    name: Build & publish to TestFlight
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Write GoogleService-Info.plist
+        env:
+          GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -z "$GOOGLE_SERVICE_INFO_PLIST" ]; then
+            echo "Missing secret: GOOGLE_SERVICE_INFO_PLIST (Firebase iOS config)"
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICE_INFO_PLIST" > ios/ahzarman/GoogleService-Info.plist
+
+      - name: Build JS bundle for iOS
+        run: npm run build-ios
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_P12_PASSWORD }}
+
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          PP_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
+          PP_PLIST="$RUNNER_TEMP/profile.plist"
+          echo -n "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d '[:space:]' | base64 --decode -o "$PP_PATH"
+          security cms -D -i "$PP_PATH" > "$PP_PLIST"
+
+          PP_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" "$PP_PLIST")
+          PP_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PP_PLIST")
+          PP_APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$PP_PLIST")
+
+          if /usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix" "$PP_PLIST" >/dev/null 2>&1; then
+            PP_TEAM=$(/usr/libexec/PlistBuddy -c "Print ApplicationIdentifierPrefix:0" "$PP_PLIST")
+          elif /usr/libexec/PlistBuddy -c "Print TeamIdentifier" "$PP_PLIST" >/dev/null 2>&1; then
+            PP_TEAM=$(/usr/libexec/PlistBuddy -c "Print TeamIdentifier:0" "$PP_PLIST")
+          else
+            PP_TEAM="${PP_APP_ID%%.*}"
+          fi
+
+          PP_BUNDLE_ID="${PP_APP_ID#${PP_TEAM}.}"
+
+          echo "Installed profile name: $PP_NAME"
+          echo "Installed profile UUID: $PP_UUID"
+          echo "Profile team ID: $PP_TEAM"
+          echo "Profile app identifier: $PP_APP_ID"
+          echo "Profile bundle ID: $PP_BUNDLE_ID"
+
+          if [ -z "$IOS_TEAM_ID" ]; then
+            echo "Missing GitHub variable IOS_TEAM_ID (Apple Developer Team ID)"
+            exit 1
+          fi
+
+          if [ "$PP_TEAM" != "$IOS_TEAM_ID" ]; then
+            echo "Profile team ($PP_TEAM) does not match IOS_TEAM_ID ($IOS_TEAM_ID)"
+            exit 1
+          fi
+
+          if [ "$PP_BUNDLE_ID" != "$IOS_BUNDLE_ID" ]; then
+            echo "Profile bundle ($PP_BUNDLE_ID) does not match IOS_BUNDLE_ID ($IOS_BUNDLE_ID)"
+            exit 1
+          fi
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${PP_UUID}.mobileprovision"
+
+          echo "IOS_PROFILE_UUID=$PP_UUID" >> "$GITHUB_ENV"
+          echo "IOS_PROFILE_NAME=$PP_NAME" >> "$GITHUB_ENV"
+
+      - name: Verify code signing setup
+        run: |
+          set -euo pipefail
+          echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+          echo "Installed provisioning profiles:"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning
+
+      - name: Archive iOS app
+        run: |
+          set -euo pipefail
+          mkdir -p build
+
+          set +e
+          xcodebuild \
+            -workspace "$IOS_WORKSPACE" \
+            -scheme "$IOS_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/${IOS_SCHEME}.xcarchive" \
+            -resultBundlePath "build/Archive.xcresult" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$IOS_CODE_SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            PROVISIONING_PROFILE="$IOS_PROFILE_UUID" \
+            MARKETING_VERSION="$IOS_VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            archive 2>&1 | tee build/archive.log
+          ARCHIVE_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$ARCHIVE_STATUS" -ne 0 ]; then
+            echo "::group::Archive errors"
+            grep -E "error:|ARCHIVE FAILED|Code Sign error|No profile|signing" build/archive.log || tail -n 80 build/archive.log
+            echo "::endgroup::"
+            exit "$ARCHIVE_STATUS"
+          fi
+
+      - name: Export IPA for TestFlight
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/export
+
+          rm -f build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :method string app-store" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :teamID string ${IOS_TEAM_ID}" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${IOS_BUNDLE_ID} string ${IOS_PROFILE_UUID}" build/ExportOptions.plist
+
+          set +e
+          xcodebuild \
+            -exportArchive \
+            -archivePath "build/${IOS_SCHEME}.xcarchive" \
+            -exportPath "build/export" \
+            -exportOptionsPlist build/ExportOptions.plist \
+            2>&1 | tee build/export.log
+          EXPORT_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$EXPORT_STATUS" -ne 0 ]; then
+            echo "::group::Export errors"
+            grep -E "error:|EXPORT FAILED|signing|profile" build/export.log || tail -n 80 build/export.log
+            echo "::endgroup::"
+            exit "$EXPORT_STATUS"
+          fi
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/export/*.ipa
+          if-no-files-found: error
+
+      - name: Resolve IPA path
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ipa_files=(build/export/*.ipa)
+          if [ ${#ipa_files[@]} -eq 0 ]; then
+            echo "No IPA found in build/export"
+            exit 1
+          fi
+          echo "IPA_PATH=${ipa_files[0]}" >> "$GITHUB_ENV"
+
+      - name: Validate App Store Connect API credentials
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APPSTORE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          ISSUER_ID="$(echo -n "${APPSTORE_ISSUER_ID:-${APP_STORE_ISSUER_ID:-}}" | tr -d '[:space:]')"
+          KEY_ID="$(echo -n "${APPSTORE_API_KEY_ID:-}" | tr -d '[:space:]')"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+
+          if [ -z "$ISSUER_ID" ]; then
+            echo "::error::Missing Issuer ID. Add GitHub secret APPSTORE_ISSUER_ID (or APP_STORE_ISSUER_ID)."
+            echo "Value: App Store Connect → Users and Access → Integrations → API → Issuer ID"
+            exit 1
+          fi
+
+          if [ -z "$KEY_ID" ]; then
+            echo "::error::Missing Key ID. Add GitHub secret APPSTORE_API_KEY_ID."
+            exit 1
+          fi
+
+          if [ -n "${APPSTORE_API_PRIVATE_KEY_BASE64:-}" ]; then
+            echo -n "$APPSTORE_API_PRIVATE_KEY_BASE64" | tr -d '[:space:]' | base64 --decode > "$KEY_PATH"
+          elif [[ "${APPSTORE_API_PRIVATE_KEY:-}" == *"BEGIN PRIVATE KEY"* ]]; then
+            if [[ "$APPSTORE_API_PRIVATE_KEY" == *'\\n'* ]]; then
+              printf '%b\n' "$APPSTORE_API_PRIVATE_KEY" > "$KEY_PATH"
+            else
+              printf '%s\n' "$APPSTORE_API_PRIVATE_KEY" > "$KEY_PATH"
+            fi
+          else
+            echo "::error::Set APPSTORE_API_PRIVATE_KEY (full .p8 text) or APPSTORE_API_PRIVATE_KEY_BASE64."
+            exit 1
+          fi
+
+          openssl pkey -in "$KEY_PATH" -noout
+
+          mkdir -p "$HOME/private_keys" "$HOME/.appstoreconnect/private_keys"
+          cp "$KEY_PATH" "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+
+          echo "Issuer ID length: ${#ISSUER_ID} (expect 36 for UUID)"
+          echo "Key ID length: ${#KEY_ID} (expect 10)"
+          echo "Testing credentials with: xcrun altool --list-apps ..."
+
+          if ! xcrun altool --list-apps --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" > /tmp/asc-api-test.log 2>&1; then
+            echo "::group::App Store Connect API test failed"
+            cat /tmp/asc-api-test.log
+            echo "::endgroup::"
+            echo "::error::API authentication failed (401). Issuer ID, Key ID, and .p8 must all belong to the same API key."
+            exit 1
+          fi
+
+          echo "App Store Connect API credentials are valid."
+          grep -E "com\.ahzarman|Ahzarman|Bundle ID" /tmp/asc-api-test.log || true
+
+          echo "APPSTORE_ISSUER_ID_CLEAN=$ISSUER_ID" >> "$GITHUB_ENV"
+          echo "APPSTORE_API_KEY_ID_CLEAN=$KEY_ID" >> "$GITHUB_ENV"
+
+      - name: Upload app to TestFlight
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          echo "Uploading $IPA_PATH to TestFlight (altool)..."
+          if ! xcrun altool --upload-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APPSTORE_API_KEY_ID_CLEAN" \
+            --apiIssuer "$APPSTORE_ISSUER_ID_CLEAN" \
+            --output-format xml 2>&1 | tee /tmp/altool-upload.log; then
+            echo "::group::Upload errors"
+            grep -E "error|Error|failed|FAILED" /tmp/altool-upload.log || tail -n 50 /tmp/altool-upload.log
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "Upload submitted. Check App Store Connect → Ahzarman → TestFlight in 10–30 minutes."
