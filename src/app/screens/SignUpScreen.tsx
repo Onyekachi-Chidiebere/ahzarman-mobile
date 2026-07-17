@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import type { AuthUser } from '../api/auth';
 import { registerAccount } from '../api/auth';
-import { completePhoneVerification, startPhoneVerification } from '../api/phoneOtp';
+import { completePhoneVerification, otpErrorMessage, startPhoneVerification } from '../api/phoneOtp';
 import { ApiError } from '../api/client';
 import Svg, { Path } from 'react-native-svg';
 import { NumPad } from '../NumPad';
@@ -179,7 +179,7 @@ export function SignUpScreen({
                   await startPhoneVerification(phone, 'register');
                   setStep(2);
                 } catch (e) {
-                  setApiErr(e instanceof ApiError ? e.message : 'Could not send code');
+                  setApiErr(otpErrorMessage(e, 'Could not send code'));
                 } finally {
                   setSending(false);
                 }
@@ -242,7 +242,7 @@ export function SignUpScreen({
                   await completePhoneVerification(phone, otp, 'register');
                   setStep(3);
                 } catch (e) {
-                  setApiErr(e instanceof ApiError ? e.message : 'Verification failed');
+                  setApiErr(otpErrorMessage(e, 'Verification failed'));
                 } finally {
                   setVerifying(false);
                 }
@@ -265,7 +265,7 @@ export function SignUpScreen({
                       try {
                         await startPhoneVerification(phone, 'register');
                       } catch (e) {
-                        setApiErr(e instanceof ApiError ? e.message : 'Could not resend');
+                        setApiErr(otpErrorMessage(e, 'Could not resend'));
                       }
                     })();
                   }}
@@ -410,5 +410,5 @@ const styles = StyleSheet.create({
     borderColor: C.errorBorder,
     marginBottom: 8,
   },
-  errTxt: { fontSize: 13, fontWeight: '500', color: C.error, textAlign: 'center' },
+  errTxt: { fontSize: 12, fontWeight: '500', color: C.error, textAlign: 'left' },
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { ApiError } from '../api/client';
 import type { AuthUser } from '../api/auth';
 import { login, resetPin } from '../api/auth';
-import { completePhoneVerification, startPhoneVerification } from '../api/phoneOtp';
+import { completePhoneVerification, otpErrorMessage, startPhoneVerification } from '../api/phoneOtp';
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
@@ -65,7 +65,7 @@ function ForgotPinFlow({
       try {
         await startPhoneVerification(phone, 'reset_pin');
       } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : 'Could not send code');
+        if (!cancelled) setErr(otpErrorMessage(e, 'Could not send code'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -86,7 +86,7 @@ function ForgotPinFlow({
           await completePhoneVerification(phone, next, 'reset_pin');
           setStage('newpin');
         } catch (e) {
-          setErr(e instanceof ApiError ? e.message : 'Wrong code');
+          setErr(otpErrorMessage(e, 'Wrong code'));
           setTimeout(() => setOtp(''), 700);
         }
       })();
@@ -331,6 +331,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.errorBorder,
   },
-  errTxt: { fontSize: 13, fontWeight: '500', color: C.error, textAlign: 'center' },
+  errTxt: { fontSize: 12, fontWeight: '500', color: C.error, textAlign: 'left' },
   demo: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 8 },
 });
