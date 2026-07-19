@@ -56,5 +56,24 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- Firebase Phone Auth reCAPTCHA redirect (required on iOS; Android does not use this) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.ahzarman.firebase</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- Encoded App ID from GOOGLE_APP_ID -->
+				<string>app-1-389408462262-ios-080a05ea9cc45d1323dd17</string>
+			</array>
+		</dict>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>
