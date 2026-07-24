@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
  * - Android Emulator: 10.0.2.2 maps to host localhost.
  * For a physical device, replace with your machine's LAN IP (same Wi‑Fi), e.g. http://192.168.1.5:3010/api
  */
-const DEV_HOST = Platform.OS === 'android' ? '192.168.8.131' : 'localhost';
+const DEV_HOST = '192.168.8.148' ;
 const PORT = 3000;
 
 export const API_BASE_URL = __DEV__

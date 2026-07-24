@@ -12,6 +12,7 @@ import type { AuthUser } from '../api/auth';
 import { registerAccount } from '../api/auth';
 import { completePhoneVerification, otpErrorMessage, startPhoneVerification } from '../api/phoneOtp';
 import { ApiError } from '../api/client';
+import { formatNgPhoneIntl } from '../api/phone';
 import Svg, { Path } from 'react-native-svg';
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
@@ -137,195 +138,217 @@ export function SignUpScreen({
   return (
     <View style={styles.page}>
       <ScreenHeader title="Create Account" onBack={handleBack} />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollInner} keyboardShouldPersistTaps="handled">
-        <Progress step={step} />
-
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollInner}
+        keyboardShouldPersistTaps="handled"
+      >
         {step === 1 ? (
           <>
-            <Text style={styles.h1}>Welcome to Ahzarman 👋</Text>
-            <Text style={styles.lead}>Your one-stop app for bills, airtime, and rewards.</Text>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Mercy Okafor"
-              placeholderTextColor={C.placeholder}
-              value={name}
-              onChangeText={setName}
-            />
-            <Text style={styles.label}>Phone Number</Text>
-            <View style={styles.phoneRow}>
-              <Text style={styles.prefix}>🇳🇬 +234</Text>
+            <View>
+              <Progress step={step} />
+              <Text style={styles.h1}>Welcome to Ahzarman 👋</Text>
+              <Text style={styles.lead}>Your one-stop app for bills, airtime, and rewards.</Text>
+              <Text style={styles.label}>Full Name</Text>
               <TextInput
-                style={styles.phoneInput}
-                placeholder="080 xxx xxxx"
+                style={styles.input}
+                placeholder="e.g. Mercy Okafor"
                 placeholderTextColor={C.placeholder}
-                value={phone}
-                onChangeText={v => setPhone(v.replace(/\D/g, '').slice(0, 11))}
-                keyboardType="phone-pad"
+                value={name}
+                onChangeText={setName}
               />
-            </View>
-            {apiErr ? (
-              <View style={styles.errBox}>
-                <Text style={styles.errTxt}>{apiErr}</Text>
+              <Text style={styles.label}>Phone Number</Text>
+              <View style={styles.phoneRow}>
+                <Text style={styles.prefix}>🇳🇬 +234</Text>
+                <TextInput
+                  style={styles.phoneInput}
+                  placeholder="080 xxx xxxx"
+                  placeholderTextColor={C.placeholder}
+                  value={phone}
+                  onChangeText={v => setPhone(v.replace(/\D/g, '').slice(0, 11))}
+                  keyboardType="phone-pad"
+                />
               </View>
-            ) : null}
-            <Pressable
-              disabled={!canStep1 || sending}
-              onPress={async () => {
-                if (!canStep1 || sending) return;
-                setApiErr('');
-                setSending(true);
-                try {
-                  await startPhoneVerification(phone, 'register');
-                  setStep(2);
-                } catch (e) {
-                  setApiErr(otpErrorMessage(e, 'Could not send code'));
-                } finally {
-                  setSending(false);
-                }
-              }}
-              style={[styles.btn, (!canStep1 || sending) && styles.btnDis]}
-            >
-              {sending ? (
-                <ActivityIndicator color={C.ink} />
-              ) : (
-                <Text style={styles.btnTxt}>Send Verification Code →</Text>
-              )}
-            </Pressable>
-            <View style={styles.footerRow}>
-              <Text style={styles.footerMuted}>Already have an account? </Text>
-              <Pressable onPress={() => goTo('sign_in')}>
-                <Text style={styles.link}>Sign in →</Text>
+              {apiErr ? (
+                <View style={styles.errBox}>
+                  <Text style={styles.errTxt}>{apiErr}</Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.actions}>
+              <Pressable
+                disabled={!canStep1 || sending}
+                onPress={async () => {
+                  if (!canStep1 || sending) return;
+                  setApiErr('');
+                  setSending(true);
+                  try {
+                    await startPhoneVerification(phone, 'register');
+                    setStep(2);
+                  } catch (e) {
+                    setApiErr(otpErrorMessage(e, 'Could not send code'));
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+                style={[styles.btn, (!canStep1 || sending) && styles.btnDis]}
+              >
+                {sending ? (
+                  <ActivityIndicator color={C.ink} />
+                ) : (
+                  <Text style={styles.btnTxt}>Send Verification Code →</Text>
+                )}
               </Pressable>
+              <View style={styles.footerRow}>
+                <Text style={styles.footerMuted}>Already have an account? </Text>
+                <Pressable onPress={() => goTo('sign_in')}>
+                  <Text style={styles.link}>Sign in →</Text>
+                </Pressable>
+              </View>
             </View>
           </>
         ) : null}
 
         {step === 2 ? (
           <>
-            <Text style={styles.h1}>Verify your number</Text>
-            <Text style={styles.lead}>
-              Enter the 6-digit code sent to <Text style={{ fontWeight: '600', color: C.ink }}>+234{phone}</Text>
-            </Text>
-            <View style={styles.otpRow}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.otpBox,
-                    otp.length === i ? { borderColor: C.primary } : otp.length > i ? { borderColor: '#C8D080' } : null,
-                    otp.length > i ? { backgroundColor: C.primFaint } : null,
-                  ]}
-                >
-                  <Text style={styles.otpChar}>{otp[i] || ''}</Text>
-                </View>
-              ))}
-            </View>
-            <NumPad
-              onDigit={d => {
-                if (otp.length < 6) setOtp(v => v + d);
-              }}
-              onDelete={() => setOtp(v => v.slice(0, -1))}
-            />
-            {apiErr ? (
-              <View style={styles.errBox}>
-                <Text style={styles.errTxt}>{apiErr}</Text>
+            <View>
+              <Progress step={step} />
+              <Text style={styles.h1}>Verify your number</Text>
+              <Text style={styles.lead}>
+                Enter the 6-digit code sent to{' '}
+                <Text style={{ fontWeight: '600', color: C.ink }}>{formatNgPhoneIntl(phone)}</Text>
+              </Text>
+              <View style={styles.otpRow}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.otpBox,
+                      otp.length === i
+                        ? { borderColor: C.primary }
+                        : otp.length > i
+                          ? { borderColor: '#C8D080' }
+                          : null,
+                      otp.length > i ? { backgroundColor: C.primFaint } : null,
+                    ]}
+                  >
+                    <Text style={styles.otpChar}>{otp[i] || ''}</Text>
+                  </View>
+                ))}
               </View>
-            ) : null}
-            <Pressable
-              disabled={otp.length < 6 || verifying}
-              onPress={async () => {
-                if (otp.length < 6 || verifying) return;
-                setApiErr('');
-                setVerifying(true);
-                try {
-                  await completePhoneVerification(phone, otp, 'register');
-                  setStep(3);
-                } catch (e) {
-                  setApiErr(otpErrorMessage(e, 'Verification failed'));
-                } finally {
-                  setVerifying(false);
-                }
-              }}
-              style={[styles.btn, (otp.length < 6 || verifying) && styles.btnDis]}
-            >
-              {verifying ? (
-                <ActivityIndicator color={C.ink} />
-              ) : (
-                <Text style={styles.btnTxt}>Verify & Continue →</Text>
-              )}
-            </Pressable>
-            <Text style={styles.centerTxt}>
-              {canResend ? (
-                <Text
-                  onPress={() => {
-                    setOtp('');
-                    setResendKey(k => k + 1);
-                    void (async () => {
-                      try {
-                        await startPhoneVerification(phone, 'register');
-                      } catch (e) {
-                        setApiErr(otpErrorMessage(e, 'Could not resend'));
-                      }
-                    })();
-                  }}
-                  style={styles.link}
-                >
-                  Resend code →
-                </Text>
-              ) : (
-                <>
-                  <Text style={styles.footerMuted}>Resend in </Text>
-                  <Text style={{ fontWeight: '600' }}>
-                    {`${Math.floor(timer / 60)}:${String(timer % 60).padStart(2, '0')}`}
+              <NumPad
+                onDigit={d => {
+                  if (otp.length < 6) setOtp(v => v + d);
+                }}
+                onDelete={() => setOtp(v => v.slice(0, -1))}
+              />
+              {apiErr ? (
+                <View style={styles.errBox}>
+                  <Text style={styles.errTxt}>{apiErr}</Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.actions}>
+              <Pressable
+                disabled={otp.length < 6 || verifying}
+                onPress={async () => {
+                  if (otp.length < 6 || verifying) return;
+                  setApiErr('');
+                  setVerifying(true);
+                  try {
+                    await completePhoneVerification(phone, otp, 'register');
+                    setStep(3);
+                  } catch (e) {
+                    setApiErr(otpErrorMessage(e, 'Verification failed'));
+                  } finally {
+                    setVerifying(false);
+                  }
+                }}
+                style={[styles.btn, (otp.length < 6 || verifying) && styles.btnDis]}
+              >
+                {verifying ? (
+                  <ActivityIndicator color={C.ink} />
+                ) : (
+                  <Text style={styles.btnTxt}>Verify & Continue →</Text>
+                )}
+              </Pressable>
+              <Text style={styles.centerTxt}>
+                {canResend ? (
+                  <Text
+                    onPress={() => {
+                      setOtp('');
+                      setResendKey(k => k + 1);
+                      void (async () => {
+                        try {
+                          await startPhoneVerification(phone, 'register');
+                        } catch (e) {
+                          setApiErr(otpErrorMessage(e, 'Could not resend'));
+                        }
+                      })();
+                    }}
+                    style={styles.link}
+                  >
+                    Resend code →
                   </Text>
-                </>
-              )}
-            </Text>
+                ) : (
+                  <>
+                    <Text style={styles.footerMuted}>Resend in </Text>
+                    <Text style={{ fontWeight: '600' }}>
+                      {`${Math.floor(timer / 60)}:${String(timer % 60).padStart(2, '0')}`}
+                    </Text>
+                  </>
+                )}
+              </Text>
+            </View>
           </>
         ) : null}
 
         {step === 3 ? (
           <>
-            <Text style={styles.h1}>{pinStage === 'create' ? 'Create your PIN' : 'Confirm your PIN'}</Text>
-            <Text style={styles.lead}>
-              {pinStage === 'create'
-                ? 'Set a 4-digit PIN to secure your account.'
-                : 'Re-enter your PIN to confirm.'}
-            </Text>
-            <PinDots val={pinStage === 'create' ? pin : confirmPin} />
-            {pinErr || apiErr ? (
-              <View style={styles.errBox}>
-                <Text style={styles.errTxt}>{pinErr || apiErr}</Text>
-              </View>
-            ) : null}
-            <NumPad
-              onDigit={d => {
-                const cur = pinStage === 'create' ? pin : confirmPin;
-                const setter = pinStage === 'create' ? setPin : setConfirmPin;
-                if (cur.length < 4) setter(v => v + d);
-              }}
-              onDelete={() => {
-                if (pinStage === 'create') setPin(v => v.slice(0, -1));
-                else setConfirmPin(v => v.slice(0, -1));
-              }}
-            />
-            <Pressable
-              disabled={(pinStage === 'create' ? pin : confirmPin).length < 4 || registering}
-              onPress={() => void handlePinContinue()}
-              style={[
-                styles.btn,
-                ((pinStage === 'create' ? pin : confirmPin).length < 4 || registering) && styles.btnDis,
-              ]}
-            >
-              {registering ? (
-                <ActivityIndicator color={C.ink} />
-              ) : (
-                <Text style={styles.btnTxt}>
-                  {pinStage === 'create' ? 'Continue →' : 'Create Account & Sign In →'}
-                </Text>
-              )}
-            </Pressable>
+            <View>
+              <Progress step={step} />
+              <Text style={styles.h1}>{pinStage === 'create' ? 'Create your PIN' : 'Confirm your PIN'}</Text>
+              <Text style={styles.lead}>
+                {pinStage === 'create'
+                  ? 'Set a 4-digit PIN to secure your account.'
+                  : 'Re-enter your PIN to confirm.'}
+              </Text>
+              <PinDots val={pinStage === 'create' ? pin : confirmPin} />
+              {pinErr || apiErr ? (
+                <View style={styles.errBox}>
+                  <Text style={styles.errTxt}>{pinErr || apiErr}</Text>
+                </View>
+              ) : null}
+              <NumPad
+                onDigit={d => {
+                  const cur = pinStage === 'create' ? pin : confirmPin;
+                  const setter = pinStage === 'create' ? setPin : setConfirmPin;
+                  if (cur.length < 4) setter(v => v + d);
+                }}
+                onDelete={() => {
+                  if (pinStage === 'create') setPin(v => v.slice(0, -1));
+                  else setConfirmPin(v => v.slice(0, -1));
+                }}
+              />
+            </View>
+            <View style={styles.actions}>
+              <Pressable
+                disabled={(pinStage === 'create' ? pin : confirmPin).length < 4 || registering}
+                onPress={() => void handlePinContinue()}
+                style={[
+                  styles.btn,
+                  ((pinStage === 'create' ? pin : confirmPin).length < 4 || registering) && styles.btnDis,
+                ]}
+              >
+                {registering ? (
+                  <ActivityIndicator color={C.ink} />
+                ) : (
+                  <Text style={styles.btnTxt}>
+                    {pinStage === 'create' ? 'Continue →' : 'Create Account & Sign In →'}
+                  </Text>
+                )}
+              </Pressable>
+            </View>
           </>
         ) : null}
       </ScrollView>
@@ -336,7 +359,14 @@ export function SignUpScreen({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.white },
   scroll: { flex: 1 },
-  scrollInner: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 4 },
+  scrollInner: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 30,
+    justifyContent: 'space-between',
+  },
+  actions: { gap: 10 },
   progressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   progressFrag: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   progressDot: {
@@ -379,11 +409,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
   },
   btnDis: { opacity: 0.45 },
   btnTxt: { fontSize: 16, fontWeight: '700', color: C.ink },
-  footerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' },
+  footerRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' },
   footerMuted: { fontSize: 13, color: grey },
   link: { fontSize: 13, fontWeight: '600', color: C.olive },
   otpRow: { flexDirection: 'row', gap: 8, justifyContent: 'center', paddingVertical: 8 },
@@ -398,8 +427,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   otpChar: { fontSize: 20, fontWeight: '700', color: C.ink },
-  centerTxt: { textAlign: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' },
-  demo: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 8 },
+  centerTxt: { textAlign: 'center', flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' },
   pinDots: { flexDirection: 'row', gap: 16, justifyContent: 'center', marginVertical: 8 },
   pinDot: { width: 14, height: 14, borderRadius: 7 },
   errBox: {

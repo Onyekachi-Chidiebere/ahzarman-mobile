@@ -60,16 +60,18 @@ export function OnboardingScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
   return (
     <View style={styles.page}>
       <View style={styles.content}>
-        <View style={styles.hero}>
-          <OnboardingArt idx={artIdx} />
+        <View>
+          <View style={styles.hero}>
+            <OnboardingArt idx={artIdx} />
+          </View>
+          <View style={styles.dots}>
+            {slides.map((_, i) => (
+              <Pressable key={`dot-${i}`} onPress={() => setIdx(i)} style={i === idx ? styles.dotActive : styles.dot} />
+            ))}
+          </View>
+          <Text style={styles.title}>{s.title}</Text>
+          <Text style={styles.body}>{s.sub}</Text>
         </View>
-        <View style={styles.dots}>
-          {slides.map((_, i) => (
-            <Pressable key={`dot-${i}`} onPress={() => setIdx(i)} style={i === idx ? styles.dotActive : styles.dot} />
-          ))}
-        </View>
-        <Text style={styles.title}>{s.title}</Text>
-        <Text style={styles.body}>{s.sub}</Text>
         <View style={styles.actions}>
           <Pressable onPress={() => (idx === 3 ? goTo('sign_up') : setIdx(idx + 1))} style={styles.primaryBtn}>
             <Text style={styles.primaryBtnTxt}>{idx === 3 ? 'Create Account →' : 'Next'}</Text>
@@ -91,7 +93,7 @@ export function OnboardingScreen({ goTo }: { goTo: (s: AppScreen) => void }) {
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#F8F9F6' },
-  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30, justifyContent: 'space-between' },
   hero: { height: 280, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 7, marginBottom: 16 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8D080' },

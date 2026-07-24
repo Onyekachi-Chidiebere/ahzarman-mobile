@@ -1,4 +1,4 @@
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import type { AuthUser } from '../api/auth';
@@ -12,6 +12,7 @@ import ChatIcon from '../assets/icons/chat.svg';
 import HouseIcon from '../assets/icons/estate.svg';
 import DocumentIcon from '../assets/icons/document.svg';
 import CardIcon from '../assets/icons/card.svg';
+
 export function ProfileScreen({
   goTo,
   userEstate,
@@ -75,7 +76,11 @@ export function ProfileScreen({
   return (
     <View style={styles.page}>
       <ScreenHeader title="Profile" />
-      <View style={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.topCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarTxt}>{(authUser?.name?.trim()?.[0] ?? 'U').toUpperCase()}</Text>
@@ -97,9 +102,7 @@ export function ProfileScreen({
                 <View
                   style={[
                     styles.iconWrap,
-                    'estateColor' in r && r.estateColor
-                      ? { backgroundColor: r.estateColor }
-                      : null,
+                    'estateColor' in r && r.estateColor ? { backgroundColor: r.estateColor } : null,
                   ]}
                 >
                   {'estateEmoji' in r && r.estateEmoji ? (
@@ -121,14 +124,15 @@ export function ProfileScreen({
         <Pressable onPress={confirmLogout} style={styles.logoutBtn} accessibilityRole="button">
           <Text style={styles.logoutTxt}>Log out</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#F8F9F6' },
-  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 90 },
+  scroll: { flex: 1 },
+  content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 100 },
   topCard: {
     backgroundColor: C.white,
     borderRadius: 14,

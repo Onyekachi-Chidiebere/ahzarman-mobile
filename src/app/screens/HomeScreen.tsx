@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ComingSoonModal } from '../ComingSoonModal';
 import { C } from '../constants';
-import { SERVICE_ITEMS, txMeta } from '../data';
+import { isLiveService, SERVICE_ITEMS, txMeta } from '../data';
 import { MoreIcon, ServiceIcon, type ServiceItemKey } from '../assets/icons';
 import type { AuthUser } from '../api/auth';
 import type { AppScreen, Estate, Tx } from '../types';
+
+type SoonTarget = { key: ServiceItemKey; label: string; color: string };
 
 function MarketingCarousel({ goTo }: { goTo: (s: AppScreen) => void }) {
   const [idx, setIdx] = useState(0);
@@ -50,6 +53,7 @@ export function HomeScreen({
 }) {
   const firstName = authUser?.name?.trim().split(/\s+/)[0] ?? 'there';
   const recent = transactions.slice(0, 4);
+  const [soon, setSoon] = useState<SoonTarget | null>(null);
   return (
     <View style={styles.page}>
       <ScrollView
@@ -119,7 +123,13 @@ export function HomeScreen({
             {SERVICE_ITEMS.map(i => (
               <Pressable
                 key={i.key}
-                onPress={() => goTo(i.key as AppScreen)}
+                onPress={() => {
+                  if (isLiveService(i.key)) {
+                    goTo(i.key as AppScreen);
+                    return;
+                  }
+                  setSoon({ key: i.key, label: i.label, color: i.color });
+                }}
                 style={[styles.homeSvcTile, { backgroundColor: i.color }]}
               >
                 <ServiceIcon name={i.key as ServiceItemKey} size={24} />
@@ -167,6 +177,14 @@ export function HomeScreen({
           )}
         </View>
       </ScrollView>
+
+      <ComingSoonModal
+        visible={!!soon}
+        label={soon?.label ?? ''}
+        serviceKey={soon?.key}
+        color={soon?.color}
+        onClose={() => setSoon(null)}
+      />
     </View>
   );
 }

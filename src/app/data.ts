@@ -66,3 +66,12 @@ export const SERVICE_ITEMS = [
   { key: 'esim', label: 'eSIM', color: '#D9E2F1' },
 ] as const;
 
+export type ServiceItemKey = (typeof SERVICE_ITEMS)[number]['key'];
+
+/** Services with live purchase flows in the app. */
+export const LIVE_SERVICE_KEYS = new Set<ServiceItemKey>(['airtime', 'data', 'electricity', 'tv']);
+
+export function isLiveService(key: string): boolean {
+  return LIVE_SERVICE_KEYS.has(key as ServiceItemKey);
+}
+

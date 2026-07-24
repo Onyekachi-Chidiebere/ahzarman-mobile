@@ -7,6 +7,7 @@ import { completePhoneVerification, otpErrorMessage, startPhoneVerification } fr
 import { NumPad } from '../NumPad';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { formatNgPhoneIntl } from '../api/phone';
 import type { AppScreen } from '../types';
 
 const grey = C.muted;
@@ -137,7 +138,8 @@ function ForgotPinFlow({
         <>
           <Text style={styles.h1}>Verify your number</Text>
           <Text style={styles.lead}>
-            Enter the 6-digit OTP sent to <Text style={{ fontWeight: '700' }}>+234 {phone?.slice(-10)}</Text>
+            Enter the 6-digit OTP sent to{' '}
+            <Text style={{ fontWeight: '700' }}>{formatNgPhoneIntl(phone)}</Text>
           </Text>
           <OtpDots6 val={otp} err={!!err} />
           {err ? (
@@ -228,62 +230,88 @@ export function SignInScreen({
   return (
     <View style={styles.page}>
       <ScreenHeader title="Sign In" onBack={headerBack} />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollInner} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollInner}
+        keyboardShouldPersistTaps="handled"
+      >
         {step === 1 ? (
           <>
-            <Text style={styles.h1}>Welcome back 👋</Text>
-            <Text style={styles.lead}>Sign in to your Ahzarman account.</Text>
-            <Text style={styles.label}>Phone Number</Text>
-            <View style={styles.phoneRow}>
-              <Text style={styles.prefix}>🇳🇬 +234</Text>
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="080 xxx xxxx"
-                placeholderTextColor={C.placeholder}
-                value={phone}
-                onChangeText={v => setPhone(v.replace(/\D/g, '').slice(0, 11))}
-                keyboardType="phone-pad"
-              />
+            <View>
+              <Text style={styles.h1}>Welcome back 👋</Text>
+              <Text style={styles.lead}>Sign in to your Ahzarman account.</Text>
+              <Text style={styles.label}>Phone Number</Text>
+              <View style={styles.phoneRow}>
+                <Text style={styles.prefix}>🇳🇬 +234</Text>
+                <TextInput
+                  style={styles.phoneInput}
+                  placeholder="080 xxx xxxx"
+                  placeholderTextColor={C.placeholder}
+                  value={phone}
+                  onChangeText={v => setPhone(v.replace(/\D/g, '').slice(0, 11))}
+                  keyboardType="phone-pad"
+                />
+              </View>
             </View>
-            <Pressable disabled={!validPhone} onPress={() => validPhone && setStep(2)} style={[styles.btn, !validPhone && styles.btnDis]}>
-              <Text style={styles.btnTxt}>Continue →</Text>
-            </Pressable>
-            <View style={styles.footerRow}>
-              <Text style={styles.footerMuted}>New to Ahzarman? </Text>
-              <Pressable onPress={() => goTo('sign_up')}>
-                <Text style={styles.link}>Create account →</Text>
+            <View style={styles.actions}>
+              <Pressable
+                disabled={!validPhone}
+                onPress={() => validPhone && setStep(2)}
+                style={[styles.btn, !validPhone && styles.btnDis]}
+              >
+                <Text style={styles.btnTxt}>Continue →</Text>
               </Pressable>
+              <View style={styles.footerRow}>
+                <Text style={styles.footerMuted}>New to Ahzarman? </Text>
+                <Pressable onPress={() => goTo('sign_up')}>
+                  <Text style={styles.link}>Create account →</Text>
+                </Pressable>
+              </View>
             </View>
           </>
         ) : null}
 
         {step === 2 ? (
           <>
-            <Text style={styles.h1}>Enter your PIN</Text>
-            <Text style={styles.lead}>Use your 4-digit PIN to access your account.</Text>
-            <PinDots4 val={pin} err={!!err} />
-            {err ? (
-              <View style={styles.errBox}>
-                <Text style={styles.errTxt}>{err}</Text>
+            <View>
+              <Text style={styles.h1}>Enter your PIN</Text>
+              <Text style={styles.lead}>Use your 4-digit PIN to access your account.</Text>
+              <PinDots4 val={pin} err={!!err} />
+              {err ? (
+                <View style={styles.errBox}>
+                  <Text style={styles.errTxt}>{err}</Text>
+                </View>
+              ) : null}
+              {signingIn ? (
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <ActivityIndicator color={C.primary} />
+                </View>
+              ) : (
+                <NumPad
+                  onDigit={onDigit}
+                  onDelete={() => {
+                    setPin(v => v.slice(0, -1));
+                    setErr('');
+                  }}
+                />
+              )}
+            </View>
+            <View style={styles.actions}>
+              <View style={styles.footerRow}>
+                <Text style={styles.footerMuted}>Forgot PIN? </Text>
+                <Pressable onPress={() => setStep(3)}>
+                  <Text style={styles.link}>Reset PIN →</Text>
+                </Pressable>
               </View>
-            ) : null}
-            {signingIn ? (
-              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
-                <ActivityIndicator color={C.primary} />
-              </View>
-            ) : (
-              <NumPad onDigit={onDigit} onDelete={() => { setPin(v => v.slice(0, -1)); setErr(''); }} />
-            )}
-            <View style={styles.footerRow}>
-              <Text style={styles.footerMuted}>Forgot PIN? </Text>
-              <Pressable onPress={() => setStep(3)}>
-                <Text style={styles.link}>Reset PIN →</Text>
-              </Pressable>
             </View>
           </>
         ) : null}
 
-        {step === 3 ? <ForgotPinFlow phone={phone} onAuthSuccess={onAuthSuccess} /> : null}
+        {step === 3 ? (
+          <View style={styles.forgotWrap}>
+            <ForgotPinFlow phone={phone} onAuthSuccess={onAuthSuccess} />
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -292,7 +320,15 @@ export function SignInScreen({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.white },
   scroll: { flex: 1 },
-  scrollInner: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 32, gap: 8 },
+  scrollInner: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 30,
+    justifyContent: 'space-between',
+  },
+  actions: { gap: 10 },
+  forgotWrap: { flexGrow: 1 },
   h1: { fontSize: 20, fontWeight: '700', color: C.ink, marginBottom: 4 },
   lead: { fontSize: 14, color: grey, lineHeight: 21, marginBottom: 8 },
   label: { fontSize: 12, fontWeight: '500', color: grey, marginBottom: 6 },
@@ -314,11 +350,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
   },
   btnDis: { opacity: 0.45 },
   btnTxt: { fontSize: 16, fontWeight: '700', color: C.ink },
-  footerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' },
+  footerRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' },
   footerMuted: { fontSize: 13, color: grey },
   link: { fontSize: 13, fontWeight: '600', color: C.olive },
   dotsRow: { flexDirection: 'row', gap: 16, justifyContent: 'center', marginVertical: 8 },
@@ -332,5 +367,4 @@ const styles = StyleSheet.create({
     borderColor: C.errorBorder,
   },
   errTxt: { fontSize: 12, fontWeight: '500', color: C.error, textAlign: 'left' },
-  demo: { textAlign: 'center', fontSize: 11, color: C.placeholder, marginTop: 8 },
 });
