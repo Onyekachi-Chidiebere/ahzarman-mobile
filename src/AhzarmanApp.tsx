@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AUTH_TOKEN_KEY,
   clearAuthSession,
@@ -271,7 +272,7 @@ export function AhzarmanApp() {
 
   if (booting) {
     return (
-      <SafeAreaView style={[styles.root, styles.boot]}>
+      <SafeAreaView style={[styles.root, styles.boot]} edges={['top', 'bottom', 'left', 'right']}>
         <View style={styles.bootInner}>
           <ActivityIndicator size="large" color={C.primary} />
         </View>
@@ -280,7 +281,10 @@ export function AhzarmanApp() {
   }
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView
+      style={styles.root}
+      edges={showBottomNav ? ['top', 'left', 'right'] : ['top', 'bottom', 'left', 'right']}
+    >
       {screen === 'onboarding' ? <OnboardingScreen goTo={goTo} /> : null}
       {screen === 'sign_up' ? <SignUpScreen goTo={goTo} onAuthSuccess={onAuthSuccess} /> : null}
       {screen === 'sign_in' ? <SignInScreen goTo={goTo} onAuthSuccess={onAuthSuccess} /> : null}

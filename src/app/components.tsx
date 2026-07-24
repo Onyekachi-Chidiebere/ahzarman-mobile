@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { C } from './constants';
 import type { AppScreen } from './types';
@@ -92,6 +93,7 @@ export function BottomNav({
   active: AppScreen;
   goTo: (k: AppScreen) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const tabs: Array<{ key: AppScreen; label: string; icon: (active: boolean) => ReactNode }> = [
     { key: 'home', label: 'Home', icon: a => <IconHome active={a} /> },
     { key: 'services', label: 'Services', icon: a => <IconGrid active={a} /> },
@@ -100,7 +102,7 @@ export function BottomNav({
   ];
 
   return (
-    <View style={styles.bottomNav}>
+    <View style={[styles.bottomNav, { paddingBottom: insets.bottom, height: 78 + insets.bottom }]}>
       {tabs.map(t => {
         const isActive = t.key === active;
         return (
