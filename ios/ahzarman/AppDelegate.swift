@@ -21,7 +21,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       FirebaseApp.configure()
     }
 
-    // Silent APNs for Firebase Phone Auth (falls back to reCAPTCHA if unavailable)
+    // Fail fast with a clear log if Phone Auth URL scheme is missing from this build
+    let expectedScheme = "app-1-389408462262-ios-080a05ea9cc45d1323dd17"
+    let urlTypes = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+    let schemes = urlTypes.flatMap { ($0["CFBundleURLSchemes"] as? [String]) ?? [] }
+    if schemes.contains(where: { $0.lowercased() == expectedScheme }) {
+      print("[Firebase] Phone Auth URL scheme OK: \(expectedScheme)")
+    } else {
+      print("[Firebase] FATAL CONFIG: Phone Auth URL scheme missing from Info.plist in this build.")
+      print("[Firebase] Expected: \(expectedScheme)")
+      print("[Firebase] Found schemes: \(schemes)")
+    }
+
     application.registerForRemoteNotifications()
 
     let delegate = ReactNativeDelegate()
