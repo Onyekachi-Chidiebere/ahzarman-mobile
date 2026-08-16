@@ -277,10 +277,11 @@ export function SignUpScreen({
                   <Text
                     onPress={() => {
                       setOtp('');
+                      setApiErr('');
                       setResendKey(k => k + 1);
                       void (async () => {
                         try {
-                          await startPhoneVerification(phone, 'register');
+                          await startPhoneVerification(phone, 'register', { forceResend: true });
                         } catch (e) {
                           setApiErr(otpErrorMessage(e, 'Could not resend'));
                         }
