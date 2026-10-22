@@ -68,6 +68,16 @@
 				<string>app-1-389408462262-ios-080a05ea9cc45d1323dd17</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.ahzarman.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.389408462262-nn707ijp942kgdb84r4d0452je6kjubb</string>
+			</array>
+		</dict>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

@@ -14,7 +14,6 @@ import type { AuthUser } from '../api/auth';
 import { ApiError } from '../api/client';
 import { completeDataPurchase, initializeDataPurchase } from '../api/dataPurchase';
 import { getDataTariffPriceList, parseTariffResponseToCatalog } from '../api/dataTariffs';
-import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { formatPointsEarned } from '../points';
@@ -84,6 +83,7 @@ export function DataScreen({
   const [payCheckout, setPayCheckout] = useState<{
     reference: string;
     email: string;
+    checkoutUrl: string;
     metadata: Record<string, unknown>;
   } | null>(null);
   const [remoteCatalog, setRemoteCatalog] = useState<Record<DataTab, DataPlan[]> | null>(null);
@@ -162,13 +162,9 @@ export function DataScreen({
       Alert.alert('Sign in required', 'Please sign in to buy data.');
       return;
     }
-    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
-      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
-      return;
-    }
     const email = (authUser.email || '').trim();
     if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
     if (!hasTariffCode) {
@@ -193,14 +189,17 @@ export function DataScreen({
           plan_label: plan.size,
           paymentType: 'B2B',
           vendType: 'PREPAID',
-          defer_payment_init: true,
+          defer_payment_init: false,
         });
         const reference = init.data?.reference;
+        const checkoutUrl = init.data?.authorization_url?.trim() || '';
         if (!reference) throw new Error('Server did not return payment reference');
+        if (!checkoutUrl) throw new Error('Server did not return TransactPay checkout URL');
 
         setPayCheckout({
           reference,
           email,
+          checkoutUrl,
           metadata: {
             user_id: authUser.id,
             transaction_id: init.data.transaction_id,
@@ -373,7 +372,7 @@ export function DataScreen({
       {payCheckout && plan ? (
         <Paystack
           visible={showPayModal}
-          paystackKey={PAYSTACK_PUBLIC_KEY}
+          checkoutUrl={payCheckout.checkoutUrl}
           amount={plan.price}
           billingEmail={payCheckout.email}
           reference={payCheckout.reference}

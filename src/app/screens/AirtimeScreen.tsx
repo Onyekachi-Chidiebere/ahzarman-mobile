@@ -13,7 +13,6 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import type { AuthUser } from '../api/auth';
 import { ApiError } from '../api/client';
 import { completeAirtimePurchase, initializeAirtimePurchase } from '../api/airtimePurchase';
-import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { formatPointsEarned, pointsForAmount } from '../points';
@@ -79,6 +78,7 @@ export function AirtimeScreen({
   const [payCheckout, setPayCheckout] = useState<{
     reference: string;
     email: string;
+    checkoutUrl: string;
     metadata: Record<string, unknown>;
   } | null>(null);
 
@@ -99,13 +99,9 @@ export function AirtimeScreen({
       Alert.alert('Sign in required', 'Please sign in to buy airtime.');
       return;
     }
-    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
-      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
-      return;
-    }
     const email = (authUser.email || '').trim();
     if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
 
@@ -121,14 +117,17 @@ export function AirtimeScreen({
           email: authUser.email,
           paymentType: 'B2B',
           vendType: 'PREPAID',
-          defer_payment_init: true,
+          defer_payment_init: false,
         });
         const reference = init.data?.reference;
+        const checkoutUrl = init.data?.authorization_url?.trim() || '';
         if (!reference) throw new Error('Server did not return payment reference');
+        if (!checkoutUrl) throw new Error('Server did not return TransactPay checkout URL');
 
         setPayCheckout({
           reference,
           email,
+          checkoutUrl,
           metadata: {
             user_id: authUser.id,
             transaction_id: init.data.transaction_id,
@@ -297,7 +296,7 @@ export function AirtimeScreen({
             <ActivityIndicator color={C.ink} />
           ) : (
             <Text style={styles.ctaTxt}>
-              {canContinue ? `Pay with Paystack — ₦${finalAmt.toLocaleString()}` : 'Enter phone and amount'}
+              {canContinue ? `Pay — ₦${finalAmt.toLocaleString()}` : 'Enter phone and amount'}
             </Text>
           )}
         </Pressable>
@@ -306,7 +305,7 @@ export function AirtimeScreen({
       {payCheckout ? (
         <Paystack
           visible={showPayModal}
-          paystackKey={PAYSTACK_PUBLIC_KEY}
+          checkoutUrl={payCheckout.checkoutUrl}
           amount={finalAmt}
           billingEmail={payCheckout.email}
           reference={payCheckout.reference}

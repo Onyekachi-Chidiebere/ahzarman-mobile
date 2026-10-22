@@ -21,15 +21,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       FirebaseApp.configure()
     }
 
-    // Fail fast with a clear log if Phone Auth URL scheme is missing from this build
-    let expectedScheme = "app-1-389408462262-ios-080a05ea9cc45d1323dd17"
+    // Fail fast with a clear log if Phone Auth / Google URL schemes are missing from this build
+    let expectedSchemes = [
+      "app-1-389408462262-ios-080a05ea9cc45d1323dd17",
+      "com.googleusercontent.apps.389408462262-nn707ijp942kgdb84r4d0452je6kjubb",
+    ]
     let urlTypes = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
     let schemes = urlTypes.flatMap { ($0["CFBundleURLSchemes"] as? [String]) ?? [] }
-    if schemes.contains(where: { $0.lowercased() == expectedScheme }) {
-      print("[Firebase] Phone Auth URL scheme OK: \(expectedScheme)")
+    let missing = expectedSchemes.filter { expected in
+      !schemes.contains(where: { $0.lowercased() == expected.lowercased() })
+    }
+    if missing.isEmpty {
+      print("[Firebase] Phone Auth URL schemes OK: \(expectedSchemes.joined(separator: ", "))")
     } else {
-      print("[Firebase] FATAL CONFIG: Phone Auth URL scheme missing from Info.plist in this build.")
-      print("[Firebase] Expected: \(expectedScheme)")
+      print("[Firebase] FATAL CONFIG: Missing URL scheme(s) from Info.plist in this build: \(missing)")
       print("[Firebase] Found schemes: \(schemes)")
     }
 

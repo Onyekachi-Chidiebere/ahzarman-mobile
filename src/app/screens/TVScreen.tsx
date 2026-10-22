@@ -8,7 +8,6 @@ import { checkBuyPowerMeter, mapMeterCheckToCustomerName, meterVerifyErrorMessag
 import type { AuthUser } from '../api/auth';
 import { ApiError } from '../api/client';
 import { completeTvPurchase, initializeTvPurchase } from '../api/tvPurchase';
-import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { formatPointsEarned, pointsForAmount } from '../points';
 import type { TvPlan, TvProviderId } from '../tvProviders';
 import { TV_PROVIDERS, TV_TARIFF_PROVIDER } from '../tvProviders';
@@ -49,6 +48,7 @@ export function TVScreen({
     reference: string;
     email: string;
     amount: number;
+    checkoutUrl: string;
     metadata: Record<string, unknown>;
   } | null>(null);
 
@@ -127,7 +127,7 @@ export function TVScreen({
       }
       Alert.alert(
         'Subscription failed',
-        `${msg}\n\nYour Paystack payment may have gone through. Retry from the app or contact support with reference: ${ref}.`,
+        `${msg}\n\nYour payment may have gone through. Retry from the app or contact support with reference: ${ref}.`,
       );
     } finally {
       setCompletingVend(false);
@@ -168,13 +168,9 @@ export function TVScreen({
       Alert.alert('Sign in required', 'Please sign in to subscribe to cable TV.');
       return;
     }
-    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
-      Alert.alert('Paystack key missing', 'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts.');
-      return;
-    }
     const email = (authUser.email || '').trim();
     if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
     const phone = authUser.phone.replace(/\D/g, '').slice(-11);
@@ -203,15 +199,18 @@ export function TVScreen({
           provider_label: provider,
           paymentType: 'B2B',
           vendType: 'PREPAID',
-          defer_payment_init: true,
+          defer_payment_init: false,
         });
         const reference = init.data?.reference;
+        const checkoutUrl = init.data?.authorization_url?.trim() || '';
         if (!reference) throw new Error('Server did not return payment reference');
+        if (!checkoutUrl) throw new Error('Server did not return TransactPay checkout URL');
 
         setPayCheckout({
           reference,
           email,
           amount: plan.price,
+          checkoutUrl,
           metadata: {
             user_id: authUser.id,
             transaction_id: init.data.transaction_id,
@@ -360,7 +359,7 @@ export function TVScreen({
           ) : (
             <Text style={styles.ctaTxt}>
               {canPay && plan
-                ? `Pay with Paystack — ${provider} ${plan.name} · ₦${plan.price.toLocaleString()}`
+                ? `Pay — ${provider} ${plan.name} · ₦${plan.price.toLocaleString()}`
                 : 'Verify decoder & select a plan'}
             </Text>
           )}
@@ -370,7 +369,7 @@ export function TVScreen({
       {payCheckout && plan ? (
         <Paystack
           visible={showPayModal}
-          paystackKey={PAYSTACK_PUBLIC_KEY}
+          checkoutUrl={payCheckout.checkoutUrl}
           amount={payCheckout.amount}
           billingEmail={payCheckout.email}
           reference={payCheckout.reference}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -9,51 +9,49 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { generatePaystackParams, paystackHtmlContent } from 'react-native-paystack-webview/production/lib/utils';
-import type {
-  Currency,
-  PaystackTransactionResponse,
-  PaymentChannels,
-} from 'react-native-paystack-webview/production/lib/types';
+import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { C } from '../constants';
 
-/** Card-only by default so Inline opens on card. Pass `channels` to allow bank, USSD, etc. */
-const DEFAULT_CHANNELS: PaymentChannels = ['card'];
+export type PaymentCheckoutSuccess = {
+  reference: string;
+  status?: string;
+};
 
 export type ElectricityPaystackModalProps = {
   visible: boolean;
-  /** Paystack public key (`pk_test_…` / `pk_live_…`). Same idea as legacy `paystackKey`. */
-  paystackKey: string;
-  /** Amount in major currency units (e.g. Naira); Paystack receives ×100 as kobo. */
-  amount: number;
-  billingEmail: string;
+  /** Hosted TransactPay checkout URL from initialize. */
+  checkoutUrl: string;
   reference: string;
+  /** Optional — kept for call-site compatibility; unused with hosted checkout. */
+  paystackKey?: string;
+  amount?: number;
+  billingEmail?: string;
   metadata?: Record<string, unknown>;
-  currency?: Currency;
-  channels?: PaymentChannels;
   debug?: boolean;
-  onSuccess: (res: PaystackTransactionResponse) => void | Promise<void>;
+  onSuccess: (res: PaymentCheckoutSuccess) => void | Promise<void>;
   onCancel?: (e: { status: string }) => void;
-  /** Called when the sheet should close (success, cancel, close button, or hardware back). */
   onRequestClose: () => void;
 };
 
-const PAYSTACK_ORIGIN = 'https://checkout.paystack.com';
+function isReturnUrl(url: string): boolean {
+  const u = url.toLowerCase();
+  return (
+    u.includes('/payments/transactpay/return') ||
+    u.includes('ahzarmanltd.com/api/payments/transactpay') ||
+    u.includes('payment/complete') ||
+    u.includes('status=successful') ||
+    u.includes('status=success')
+  );
+}
 
 /**
- * Declarative Paystack Inline checkout in a full-screen modal (same WebView pipeline as `PaystackProvider` v5).
- * `react-native-paystack-webview` does not ship a `<Paystack />` component anymore; this matches that older API shape.
+ * Full-screen hosted checkout (TransactPay payment link).
+ * Exported as `Paystack` for existing screen imports.
  */
 export function ElectricityPaystackModal({
   visible,
-  paystackKey,
-  amount,
-  billingEmail,
+  checkoutUrl,
   reference,
-  metadata,
-  currency = 'NGN',
-  channels = DEFAULT_CHANNELS,
   debug = __DEV__,
   onSuccess,
   onCancel,
@@ -62,94 +60,49 @@ export function ElectricityPaystackModal({
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const sheetHeight = Math.round(windowHeight * 0.88);
-
-  const paramsRef = useRef({
-    email: billingEmail,
-    amount,
-    onSuccess: (_data: PaystackTransactionResponse) => {},
-    onCancel: () => {},
-  });
-
-  paramsRef.current = {
-    email: billingEmail,
-    amount,
-    onSuccess: (data: PaystackTransactionResponse) => {
-      onSuccess(data);
-    },
-    onCancel: () => {
-      onCancel?.({ status: 'cancelled' });
-    },
-  };
+  const handledRef = useRef(false);
 
   const close = useCallback(() => {
     onRequestClose();
   }, [onRequestClose]);
 
-  const html = useMemo(() => {
-    if (!visible) return '';
-    const key = paystackKey?.trim();
-    const email = billingEmail?.trim();
-    const ref = reference?.trim();
-    if (!key || !email || !ref || !amount || amount <= 0) return '';
-    return paystackHtmlContent(
-      generatePaystackParams({
-        publicKey: key,
-        email,
-        amount,
-        reference: ref,
-        metadata,
-        currency,
-        channels,
-      }),
-      'checkout',
-    );
-  }, [visible, paystackKey, billingEmail, reference, amount, metadata, currency, channels]);
-
-  const onMessage = useCallback(
-    (event: WebViewMessageEvent) => {
+  const finishSuccess = useCallback(() => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+    void (async () => {
       try {
-        const data = JSON.parse(event.nativeEvent.data) as {
-          event?: string;
-          data?: PaystackTransactionResponse;
-          error?: { message?: string };
-        };
-        if (debug) console.log('[Paystack] message', data);
-        switch (data.event) {
-          case 'success':
-            void (async () => {
-              try {
-                await Promise.resolve(paramsRef.current.onSuccess(data.data as PaystackTransactionResponse));
-              } finally {
-                close();
-              }
-            })();
-            break;
-          case 'cancel':
-            paramsRef.current.onCancel();
-            close();
-            break;
-          case 'error':
-            if (debug) console.warn('[Paystack] error', data.error);
-            onCancel?.({ status: 'error' });
-            close();
-            break;
-          default:
-            break;
-        }
-      } catch (e) {
-        if (debug) console.warn('[Paystack] message parse error', e);
+        await Promise.resolve(onSuccess({ reference, status: 'success' }));
+      } finally {
+        close();
       }
-    },
-    [close, debug, onCancel],
-  );
+    })();
+  }, [close, onSuccess, reference]);
 
   const headerClose = () => {
     onCancel?.({ status: 'closed' });
     close();
   };
 
+  const onNav = (nav: WebViewNavigation) => {
+    if (!nav?.url) return;
+    if (debug) console.log('[TransactPay] nav', nav.url);
+    if (isReturnUrl(nav.url)) {
+      finishSuccess();
+    }
+  };
+
+  const uri = checkoutUrl?.trim() || '';
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={headerClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onShow={() => {
+        handledRef.current = false;
+      }}
+      onRequestClose={headerClose}
+    >
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={headerClose} accessibilityRole="button" />
         <View
@@ -163,18 +116,30 @@ export function ElectricityPaystackModal({
           ]}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Pay with Paystack</Text>
-            <Pressable onPress={headerClose} style={styles.closeBtn} hitSlop={12}>
-              <Text style={styles.closeTxt}>Close</Text>
-            </Pressable>
+            <Text style={styles.title}>Complete payment</Text>
+            <View style={styles.headerActions}>
+              <Pressable onPress={finishSuccess} style={styles.closeBtn} hitSlop={12}>
+                <Text style={styles.doneTxt}>I've paid</Text>
+              </Pressable>
+              <Pressable onPress={headerClose} style={styles.closeBtn} hitSlop={12}>
+                <Text style={styles.closeTxt}>Close</Text>
+              </Pressable>
+            </View>
           </View>
           <View style={styles.webWrap}>
-            {html ? (
+            {uri ? (
               <WebView
                 key={reference}
                 originWhitelist={['*']}
-                source={{ html, baseUrl: PAYSTACK_ORIGIN }}
-                onMessage={onMessage}
+                source={{ uri }}
+                onNavigationStateChange={onNav}
+                onShouldStartLoadWithRequest={req => {
+                  if (req?.url && isReturnUrl(req.url)) {
+                    finishSuccess();
+                    return false;
+                  }
+                  return true;
+                }}
                 javaScriptEnabled
                 domStorageEnabled
                 startInLoadingState
@@ -191,6 +156,7 @@ export function ElectricityPaystackModal({
             ) : (
               <View style={styles.loading}>
                 <ActivityIndicator size="large" color={C.primary} />
+                <Text style={styles.missing}>Missing checkout URL</Text>
               </View>
             )}
           </View>
@@ -224,14 +190,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   title: { fontSize: 17, fontWeight: '700', color: C.ink },
   closeBtn: { paddingVertical: 6, paddingHorizontal: 10 },
   closeTxt: { fontSize: 15, fontWeight: '600', color: C.olive },
-  /** Needs explicit flex + bounded parent (`sheet` height) so the WebView is not 0px tall. */
+  doneTxt: { fontSize: 15, fontWeight: '700', color: C.primary },
   webWrap: { flex: 1, minHeight: 280 },
   web: { flex: 1, backgroundColor: C.white },
-  loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  loading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  missing: { fontSize: 13, color: C.muted },
 });
 
-/** Same component — use this name if you prefer the classic `<Paystack … />` snippet. */
+/** Alias kept so existing screens can keep `import { Paystack }`. */
 export const Paystack = ElectricityPaystackModal;

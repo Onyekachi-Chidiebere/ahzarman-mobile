@@ -26,7 +26,6 @@ import {
   saveVerifiedMeter,
   type SavedMeter,
 } from '../api/savedMeters';
-import { PAYSTACK_PUBLIC_KEY } from '../config';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { formatPointsEarned, pointsForAmount } from '../points';
@@ -95,6 +94,7 @@ export function ElectricityScreen({
     reference: string;
     transactionId: number;
     email: string;
+    checkoutUrl: string;
     metadata: Record<string, unknown>;
   } | null>(null);
 
@@ -208,16 +208,9 @@ export function ElectricityScreen({
       Alert.alert('Sign in required', 'Please sign in to buy electricity.');
       return;
     }
-    if (!PAYSTACK_PUBLIC_KEY?.trim()) {
-      Alert.alert(
-        'Paystack key missing',
-        'Set PAYSTACK_PUBLIC_KEY in src/app/config.ts (your pk_test_ or pk_live_ key).',
-      );
-      return;
-    }
     const email = (authUser.email || '').trim();
     if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay with Paystack.');
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
 
@@ -236,16 +229,21 @@ export function ElectricityScreen({
           email: authUser.email,
           vendType: 'PREPAID',
           paymentType: 'B2B',
-          defer_payment_init: true,
+          defer_payment_init: false,
         });
         const reference = init.data?.reference;
+        const checkoutUrl = init.data?.authorization_url?.trim() || '';
         if (!reference) {
           throw new Error('Server did not return payment reference');
+        }
+        if (!checkoutUrl) {
+          throw new Error('Server did not return TransactPay checkout URL');
         }
         setPayCheckout({
           reference,
           transactionId: init.data.transaction_id,
           email,
+          checkoutUrl,
           metadata: {
             user_id: authUser.id,
             transaction_id: init.data.transaction_id,
@@ -487,7 +485,7 @@ export function ElectricityScreen({
       {payCheckout && disco ? (
         <Paystack
           visible={showPayModal}
-          paystackKey={PAYSTACK_PUBLIC_KEY}
+          checkoutUrl={payCheckout.checkoutUrl}
           amount={amtNum}
           billingEmail={payCheckout.email}
           reference={payCheckout.reference}
