@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { retryTransactionDelivery } from '../api/airtimePurchase';
 import { apiErrorMessage } from '../api/client';
 import {
   formatTokenDisplay,
@@ -24,8 +26,16 @@ import { txMeta } from '../data';
 import { C } from '../constants';
 import type { AppScreen, Tx } from '../types';
 
-const FILTERS: Array<'All' | 'Successful' | 'Pending' | 'Failed'> = ['All', 'Successful', 'Pending', 'Failed'];
+const FILTERS: Array<'All' | 'Successful' | 'Pending' | 'Failed' | 'Refunded'> = [
+  'All',
+  'Successful',
+  'Pending',
+  'Failed',
+  'Refunded',
+];
 const grey = C.muted;
+
+const RETRYABLE_TYPES = new Set(['airtime', 'data', 'electricity', 'tv']);
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -66,11 +76,20 @@ function detailRows(row: ServerTransaction): { label: string; value: string }[] 
   const ref = row.provider_transaction_id;
   if (ref) rows.push({ label: 'Reference', value: String(ref) });
 
-  if (row.status === 'failed' && row.error_message) {
-    rows.push({ label: 'Error', value: String(row.error_message) });
+  const st = String(row.status || '').toLowerCase();
+  if ((st === 'failed' || st === 'processing' || st === 'paid' || st === 'refunded') && row.error_message) {
+    rows.push({ label: st === 'refunded' ? 'Note' : 'Delivery note', value: String(row.error_message) });
   }
 
   return rows;
+}
+
+function canRetryDelivery(row: ServerTransaction): boolean {
+  const st = String(row.status || '').toLowerCase();
+  const type = String(row.transaction_type || '').toLowerCase();
+  if (!RETRYABLE_TYPES.has(type)) return false;
+  if (row.meter_token) return false;
+  return st === 'processing' || st === 'paid';
 }
 
 export function HistoryScreen({
@@ -78,11 +97,13 @@ export function HistoryScreen({
   transactions,
   txLoading,
   authToken,
+  onRefreshTransactions,
 }: {
   goTo: (s: AppScreen) => void;
   transactions: Tx[];
   txLoading?: boolean;
   authToken: string | null;
+  onRefreshTransactions?: () => void;
 }) {
   const [active, setActive] = useState<(typeof FILTERS)[number]>('All');
   const [selectedTx, setSelectedTx] = useState<Tx | null>(null);
@@ -90,6 +111,7 @@ export function HistoryScreen({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailErr, setDetailErr] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const filtered = useMemo(() => {
     if (active === 'All') return transactions;
@@ -140,12 +162,37 @@ export function HistoryScreen({
     }
   };
 
+  const onRetryDelivery = () => {
+    if (!detail || !authToken || retrying) return;
+    void (async () => {
+      setRetrying(true);
+      try {
+        const res = await retryTransactionDelivery(detail.id, authToken);
+        const row = await getTransactionById(detail.id, authToken);
+        setDetail(row);
+        onRefreshTransactions?.();
+        Alert.alert(
+          res.data?.status === 'success' ? 'Delivered' : 'Updated',
+          res.message ||
+            (res.data?.status === 'success'
+              ? 'Service delivered successfully.'
+              : 'Still processing. Automatic retries continue; you will not be charged again.'),
+        );
+      } catch (e) {
+        Alert.alert('Retry failed', apiErrorMessage(e, 'Could not retry delivery'));
+      } finally {
+        setRetrying(false);
+      }
+    })();
+  };
+
   const showToken =
     detail &&
     hasTokenField(detail.transaction_type) &&
     detail.meter_token?.trim();
 
   const detailFields = detail ? detailRows(detail) : [];
+  const showRetry = detail ? canRetryDelivery(detail) : false;
 
   return (
     <View style={styles.page}>
@@ -273,6 +320,25 @@ export function HistoryScreen({
                       </View>
                     ))}
                   </View>
+
+                  {showRetry ? (
+                    <View style={styles.retryBox}>
+                      <Text style={styles.retryHint}>
+                        Payment received. Delivery is still pending — retry will not charge you again.
+                      </Text>
+                      <Pressable
+                        onPress={onRetryDelivery}
+                        disabled={retrying}
+                        style={[styles.retryBtn, retrying && { opacity: 0.6 }]}
+                      >
+                        {retrying ? (
+                          <ActivityIndicator color={C.ink} />
+                        ) : (
+                          <Text style={styles.retryBtnTxt}>Retry delivery</Text>
+                        )}
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </>
               ) : null}
             </ScrollView>
@@ -345,6 +411,24 @@ const styles = StyleSheet.create({
   emptyCtaTxt: { fontSize: 14, fontWeight: '700', color: C.ink },
   loadingBox: { alignItems: 'center', paddingVertical: 48, gap: 12 },
   loadingTxt: { fontSize: 14, color: C.muted },
+  retryBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F5EF',
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 12,
+  },
+  retryHint: { fontSize: 13, color: C.muted, lineHeight: 18 },
+  retryBtn: {
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryBtnTxt: { fontSize: 14, fontWeight: '700', color: C.ink },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.52)',

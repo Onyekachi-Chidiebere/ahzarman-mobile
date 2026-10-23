@@ -98,6 +98,6 @@ export type Tx = {
   amount: string;
   date?: string;
   pts?: string;
-  status?: 'Successful' | 'Pending' | 'Failed';
+  status?: 'Successful' | 'Pending' | 'Failed' | 'Refunded';
 };
 

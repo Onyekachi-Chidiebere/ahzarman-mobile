@@ -35,7 +35,9 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string {
 function mapStatus(status: string): Tx['status'] {
   const s = String(status || '').toLowerCase();
   if (s === 'success') return 'Successful';
+  if (s === 'refunded' || s === 'refund_pending') return 'Refunded';
   if (s === 'failed' || s === 'cancelled') return 'Failed';
+  // processing / paid / pending → still delivering or awaiting payment
   return 'Pending';
 }
 

@@ -31,6 +31,20 @@ const AIRTIME_DISCO: Record<string, string> = {
   '9mobile': '9MOBILE',
 };
 
+/** Local prefix check before charging (server also validates). MNP can still mismatch. */
+const NET_PREFIXES: Record<string, string[]> = {
+  MTN: ['0703', '0704', '0706', '0803', '0806', '0810', '0813', '0814', '0816', '0903', '0906', '0913', '0916'],
+  Airtel: ['0701', '0708', '0802', '0808', '0812', '0901', '0902', '0904', '0907', '0912'],
+  Glo: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
+  '9mobile': ['0809', '0817', '0818', '0908', '0909'],
+};
+
+function phoneLooksLikeNetwork(phone11: string, network: string): boolean {
+  const prefixes = NET_PREFIXES[network];
+  if (!prefixes) return true;
+  return prefixes.some(p => phone11.startsWith(p));
+}
+
 const NET_COL: Record<string, string> = {
   MTN: '#FFCC00',
   Airtel: '#FF0000',
@@ -104,6 +118,13 @@ export function AirtimeScreen({
       Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
+    if (!phoneLooksLikeNetwork(phone, network)) {
+      Alert.alert(
+        'Check network',
+        `This number does not look like a ${network} line. Pick the correct network before paying — you will not be charged until checkout succeeds.`,
+      );
+      return;
+    }
 
     void (async () => {
       setPaying(true);
@@ -147,21 +168,28 @@ export function AirtimeScreen({
     })();
   };
 
-  const finishPurchase = (pts: number) => {
+  const finishPurchase = (
+    pts: number,
+    opts: { status: 'Successful' | 'Pending' | 'Refunded'; transactionId?: number | string },
+  ) => {
     if (save && benName.trim() && phone.length === 11) {
       onSaveBenef({ id: Date.now(), name: benName.trim(), phone, network });
     }
     onAddTx({
-      id: String(Date.now()),
+      id: String(opts.transactionId ?? Date.now()),
       type: 'airtime',
       title: `Airtime — ${network}`,
       amount: `-₦${finalAmt.toLocaleString()}`,
-      pts: formatPointsEarned(pts),
+      pts: opts.status === 'Successful' ? formatPointsEarned(pts) : undefined,
       date: 'Just now',
-      status: 'Successful',
+      status: opts.status,
     });
     dismissPayModal();
-    onPurchaseComplete(pts);
+    if (opts.status === 'Successful') {
+      onPurchaseComplete(pts);
+    } else {
+      goTo('history');
+    }
   };
 
   return (
@@ -315,8 +343,32 @@ export function AirtimeScreen({
             const pts = pointsForAmount(finalAmt);
             setPaying(true);
             try {
-              await completeAirtimePurchase({ reference: ref });
-              finishPurchase(pts);
+              const done = await completeAirtimePurchase({ reference: ref });
+              const st = String(done.data?.status || '').toLowerCase();
+              const delivery = String(done.data?.delivery || '').toLowerCase();
+              const txId = done.data?.transaction_id;
+
+              if (st === 'success' || delivery === 'delivered') {
+                finishPurchase(pts, { status: 'Successful', transactionId: txId });
+                Alert.alert('Payment successful', 'Your airtime has been delivered.');
+                return;
+              }
+              if (st === 'refunded' || st === 'refund_pending' || delivery === 'refunded') {
+                finishPurchase(0, { status: 'Refunded', transactionId: txId });
+                Alert.alert(
+                  'Payment refunded',
+                  done.message ||
+                    'We could not deliver airtime, so a refund was started. It may take a short time to appear.',
+                );
+                return;
+              }
+
+              // processing / paid — money taken, delivery pending (auto-retry then refund)
+              finishPurchase(0, { status: 'Pending', transactionId: txId });
+              Alert.alert(
+                'Payment successful',
+                'Your payment went through. Airtime delivery is in progress — you will not be charged again. Check History to retry or see status.',
+              );
             } catch (e) {
               const msg =
                 e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not complete purchase';

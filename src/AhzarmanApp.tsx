@@ -348,6 +348,7 @@ export function AhzarmanApp() {
           transactions={transactions}
           txLoading={txLoading}
           authToken={authToken}
+          onRefreshTransactions={refreshTransactions}
         />
       ) : null}
       {screen === 'share_points' ? (
