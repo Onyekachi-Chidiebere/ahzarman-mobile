@@ -20,12 +20,15 @@ import {
 } from '../api/meterCheck';
 import type { AuthUser } from '../api/auth';
 import { completeElectricityPurchase, initializeElectricityPurchase } from '../api/electricityPurchase';
+import { payWithPoints } from '../api/pointsPay';
 import {
   getSavedMeters,
   maskMeterNumber,
   saveVerifiedMeter,
   type SavedMeter,
 } from '../api/savedMeters';
+import { PayMethodToggle, type PayMethod } from '../components/PayMethodToggle';
+import { PointsPinModal } from '../components/PointsPinModal';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { formatPointsEarned, pointsForAmount } from '../points';
@@ -57,7 +60,7 @@ function mapMeterCheckToCustomer(data: unknown): { name: string; address: string
   ]);
   const min = pickString(flat, ['minVendAmount', 'minAmount', 'minimum', 'minimumAmount']);
   if (!name && !address) return null;
-  return { name: name || 'Customer', address: address || '—', min: min || '500' };
+  return { name: name || 'Customer', address: address || '—', min: min || '1000' };
 }
 
 function findDiscoById(discoId: string): Disco | null {
@@ -69,12 +72,14 @@ export function ElectricityScreen({
   onAddTx,
   authUser,
   authToken,
+  userPoints = 0,
   onPurchaseSuccess,
 }: {
   goTo: (s: AppScreen) => void;
   onAddTx: (tx: Tx) => void;
   authUser: AuthUser | null;
   authToken: string | null;
+  userPoints?: number;
   onPurchaseSuccess: (summary: ElecPurchaseSummary) => void;
 }) {
   const [disco, setDisco] = useState<Disco | null>(null);
@@ -86,6 +91,10 @@ export function ElectricityScreen({
   const [amount, setAmount] = useState('');
   const [payError, setPayError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [payMethod, setPayMethod] = useState<PayMethod>('card');
+  const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinErr, setPinErr] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [savedMeters, setSavedMeters] = useState<SavedMeter[]>([]);
   const [loadingSavedMeters, setLoadingSavedMeters] = useState(false);
@@ -137,7 +146,7 @@ export function ElectricityScreen({
     setVerified({
       name: saved.customer_name,
       address: saved.address,
-      min: saved.min_amount || '500',
+      min: saved.min_amount || '1000',
     });
     setVerifyError(null);
     setAmount('');
@@ -184,7 +193,7 @@ export function ElectricityScreen({
         const result = mapped ?? {
           name: 'Meter verified',
           address: `Proceed to enter amount for ${disco.name}.`,
-          min: '500',
+          min: '1000',
         };
         setVerified(result);
         await persistVerifiedMeter(disco, meter, result);
@@ -199,8 +208,59 @@ export function ElectricityScreen({
   };
 
   const amtNum = parseInt(amount || '0', 10);
-  const minPay = Math.max(500, parseInt(verified?.min || '500', 10) || 500);
+  const minPay = Math.max(1000, parseInt(verified?.min || '1000', 10) || 1000);
   const canOpenPay = verified && amtNum >= minPay;
+
+  const submitPointsPay = async (pinValue: string) => {
+    if (!authUser || !disco || !canOpenPay) return;
+    setPaying(true);
+    setPinErr('');
+    try {
+      const discoCode = disco.buypowerCode ?? disco.id;
+      const res = await payWithPoints(authToken, {
+        service: 'electricity',
+        amount: amtNum,
+        pin: pinValue,
+        meter,
+        disco: discoCode,
+        disco_id: disco.id,
+        phone: authUser.phone || '08000000000',
+        name: authUser.name,
+        email: authUser.email,
+      });
+      setShowPin(false);
+      setPin('');
+      const st = String(res.data?.status || '').toLowerCase();
+      const delivery = String(res.data?.delivery || '').toLowerCase();
+      if (st === 'success' || delivery === 'delivered') {
+        onAddTx({
+          id: String(res.data.transaction_id),
+          type: 'electricity',
+          title: `Electricity — ${disco.short || disco.name}`,
+          amount: `-₦${amtNum.toLocaleString()}`,
+          date: 'Just now',
+          status: 'Successful',
+        });
+        onPurchaseSuccess({
+          meterToken: res.data.meter_token || res.data.vend_reference || null,
+          amount: amtNum,
+          discoName: disco.name,
+          meter,
+        });
+      } else if (st === 'refunded' || delivery === 'points_restored') {
+        Alert.alert('Points restored', res.message || 'Delivery failed; your points were restored.');
+        goTo('history');
+      } else {
+        Alert.alert('Payment successful', 'Points reserved. Token delivery is in progress — check History.');
+        goTo('history');
+      }
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Points payment failed'));
+      setPin('');
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const openPayModal = () => {
     if (!canOpenPay || !disco) return;
@@ -208,6 +268,18 @@ export function ElectricityScreen({
       Alert.alert('Sign in required', 'Please sign in to buy electricity.');
       return;
     }
+
+    if (payMethod === 'points') {
+      if (userPoints < amtNum) {
+        Alert.alert('Not enough points', `You need ${amtNum.toLocaleString()} pts.`);
+        return;
+      }
+      setPin('');
+      setPinErr('');
+      setShowPin(true);
+      return;
+    }
+
     const email = (authUser.email || '').trim();
     if (!email) {
       Alert.alert('Email required', 'Add an email to your account to pay.');
@@ -398,7 +470,7 @@ export function ElectricityScreen({
         ) : null}
         {!disco ? <Text style={styles.hint}>Select a DisCo first before verifying meter</Text> : null}
 
-        <Text style={styles.sectionLabel}>AMOUNT (₦{verified?.min ?? '500'} MINIMUM)</Text>
+        <Text style={styles.sectionLabel}>AMOUNT (₦{Math.max(1000, parseInt(verified?.min || '1000', 10) || 1000).toLocaleString()} MINIMUM)</Text>
         <TextInput
           style={[styles.input, !verified && styles.inputDisabled]}
           editable={!!verified}
@@ -410,16 +482,39 @@ export function ElectricityScreen({
         />
         {!verified ? <Text style={styles.fieldHint}>Verify meter number first</Text> : null}
 
+        <PayMethodToggle
+          value={payMethod}
+          onChange={setPayMethod}
+          pointsBalance={userPoints}
+          pointsNeeded={amtNum}
+        />
+
         <Pressable
-          disabled={!canOpenPay || paying || showPayModal}
+          disabled={
+            !canOpenPay ||
+            paying ||
+            showPayModal ||
+            (payMethod === 'points' && userPoints < amtNum)
+          }
           onPress={openPayModal}
-          style={[styles.payBtn, (!canOpenPay || paying || showPayModal) && styles.payBtnDis]}
+          style={[
+            styles.payBtn,
+            (!canOpenPay ||
+              paying ||
+              showPayModal ||
+              (payMethod === 'points' && userPoints < amtNum)) &&
+              styles.payBtnDis,
+          ]}
         >
           {paying ? (
             <ActivityIndicator color={C.ink} />
           ) : (
             <Text style={styles.payBtnTxt}>
-              {canOpenPay ? `Pay ₦${amtNum.toLocaleString()}` : 'Complete fields to continue'}
+              {!canOpenPay
+                ? 'Complete fields to continue'
+                : payMethod === 'points'
+                  ? `Pay ${amtNum.toLocaleString()} pts`
+                  : `Pay ₦${amtNum.toLocaleString()}`}
             </Text>
           )}
         </Pressable>
@@ -429,6 +524,25 @@ export function ElectricityScreen({
           </View>
         ) : null}
       </ScrollView>
+
+      <PointsPinModal
+        visible={showPin}
+        pointsNeeded={amtNum}
+        label="electricity"
+        submitting={paying}
+        error={pinErr}
+        pin={pin}
+        onChangePin={p => {
+          setPin(p);
+          setPinErr('');
+        }}
+        onSubmit={p => void submitPointsPay(p)}
+        onClose={() => {
+          setShowPin(false);
+          setPin('');
+          setPinErr('');
+        }}
+      />
 
       <Modal visible={showDiscoSheet} transparent animationType="slide" onRequestClose={() => setShowDiscoSheet(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setShowDiscoSheet(false)}>

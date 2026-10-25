@@ -57,7 +57,12 @@ export function RewardsScreen({
       <ScreenHeader title="Rewards" />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.rewCard}>
-          <Text style={styles.rewLabel}>YOUR POINTS</Text>
+          <View style={styles.rewTopRow}>
+            <Text style={styles.rewLabel}>YOUR POINTS</Text>
+            <Pressable onPress={() => goTo('buy_points')} style={styles.buyPointsChip}>
+              <Text style={styles.buyPointsChipTxt}>Buy Points</Text>
+            </Pressable>
+          </View>
           <Text style={styles.rewBig}>{userPoints.toLocaleString()} pts</Text>
           <Text style={styles.rewSub}>
             {tier.name} tier
@@ -67,11 +72,11 @@ export function RewardsScreen({
             <View style={[styles.rewBarFill, { width: `${Math.round(progressInTier * 100)}%` }]} />
           </View>
           <View style={styles.actions}>
-            <Pressable onPress={() => goTo('share_points')} style={styles.primaryBtn}>
-              <Text style={styles.primaryTxt}>Share Points</Text>
+            <Pressable onPress={() => goTo('redeem_points')} style={styles.primaryBtn}>
+              <Text style={styles.primaryTxt}>Redeem Points</Text>
             </Pressable>
-            <Pressable onPress={() => goTo('redeem_points')} style={styles.ghostBtn}>
-              <Text style={styles.ghostTxt}>Redeem</Text>
+            <Pressable onPress={() => goTo('share_points')} style={styles.ghostBtn}>
+              <Text style={styles.ghostTxt}>Share Points</Text>
             </Pressable>
           </View>
         </View>
@@ -216,7 +221,23 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 90, gap: 14 },
   rewCard: { backgroundColor: C.ink, borderRadius: 16, padding: 18 },
-  rewLabel: { color: 'rgba(255,255,255,.5)', fontSize: 11, fontWeight: '600', marginBottom: 4 },
+  rewTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    gap: 10,
+  },
+  rewLabel: { color: 'rgba(255,255,255,.5)', fontSize: 11, fontWeight: '600', flex: 1 },
+  buyPointsChip: {
+    paddingHorizontal: 12,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyPointsChipTxt: { color: C.ink, fontSize: 11, fontWeight: '700' },
   rewBig: { color: C.white, fontSize: 36, fontWeight: '700', marginBottom: 2 },
   rewSub: { color: 'rgba(255,255,255,.45)', fontSize: 11, marginBottom: 10 },
   rewBar: { height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,.12)', marginBottom: 12 },

@@ -6,8 +6,11 @@ import { C } from '../constants';
 import { getDataTariffPriceList, parseTariffResponseToTvPlans } from '../api/dataTariffs';
 import { checkBuyPowerMeter, mapMeterCheckToCustomerName, meterVerifyErrorMessage } from '../api/meterCheck';
 import type { AuthUser } from '../api/auth';
-import { ApiError } from '../api/client';
+import { ApiError, apiErrorMessage } from '../api/client';
+import { payWithPoints } from '../api/pointsPay';
 import { completeTvPurchase, initializeTvPurchase } from '../api/tvPurchase';
+import { PayMethodToggle, type PayMethod } from '../components/PayMethodToggle';
+import { PointsPinModal } from '../components/PointsPinModal';
 import { formatPointsEarned, pointsForAmount } from '../points';
 import type { TvPlan, TvProviderId } from '../tvProviders';
 import { TV_PROVIDERS, TV_TARIFF_PROVIDER } from '../tvProviders';
@@ -26,11 +29,15 @@ export function TVScreen({
   onAddTx,
   onPurchaseComplete,
   authUser,
+  authToken,
+  userPoints = 0,
 }: {
   goTo: (s: AppScreen) => void;
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pts: number) => void;
   authUser: AuthUser | null;
+  authToken: string | null;
+  userPoints?: number;
 }) {
   const [provider, setProvider] = useState<TvProviderId>('DStv');
   const [plan, setPlan] = useState<TvPlan | null>(null);
@@ -42,6 +49,10 @@ export function TVScreen({
   const [verifiedDec, setVerifiedDec] = useState<{ name: string } | null>(null);
   const [verifyDecError, setVerifyDecError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [payMethod, setPayMethod] = useState<PayMethod>('card');
+  const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinErr, setPinErr] = useState('');
   const [completingVend, setCompletingVend] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [payCheckout, setPayCheckout] = useState<{
@@ -162,12 +173,75 @@ export function TVScreen({
     })();
   };
 
-  const startPaystackCheckout = () => {
+  const submitPointsPay = async (pinValue: string) => {
+    if (!authUser || !plan || !canPay) return;
+    const phone = (authUser.phone || '').replace(/\D/g, '').slice(-11);
+    setPaying(true);
+    setPinErr('');
+    try {
+      const res = await payWithPoints(authToken, {
+        service: 'tv',
+        amount: plan.price,
+        pin: pinValue,
+        meter: decoder,
+        phone,
+        disco: TV_TARIFF_PROVIDER[provider],
+        tariffClass: plan.code,
+        plan_label: plan.name,
+        name: verifiedDec?.name || authUser.name,
+        email: authUser.email,
+      });
+      setShowPin(false);
+      setPin('');
+      const st = String(res.data?.status || '').toLowerCase();
+      const delivery = String(res.data?.delivery || '').toLowerCase();
+      if (st === 'success' || delivery === 'delivered') {
+        onAddTx({
+          id: String(res.data.transaction_id),
+          type: 'tv',
+          title: `${provider} ${plan.name}`,
+          amount: `-₦${plan.price.toLocaleString()}`,
+          date: 'Just now',
+          status: 'Successful',
+        });
+        onPurchaseComplete(0);
+      } else if (st === 'refunded' || delivery === 'points_restored') {
+        Alert.alert('Points restored', res.message || 'Delivery failed; points restored.');
+        goTo('history');
+      } else {
+        Alert.alert('Payment successful', 'Points reserved. Subscription delivery in progress.');
+        goTo('history');
+      }
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Points payment failed'));
+      setPin('');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const startCheckout = () => {
     if (!canPay || !plan) return;
     if (!authUser) {
       Alert.alert('Sign in required', 'Please sign in to subscribe to cable TV.');
       return;
     }
+    if (!plan.code?.trim()) {
+      Alert.alert('Plan unavailable', 'This plan has no bundle code. Pick another plan or try again later.');
+      return;
+    }
+
+    if (payMethod === 'points') {
+      if (userPoints < plan.price) {
+        Alert.alert('Not enough points', `You need ${plan.price.toLocaleString()} pts.`);
+        return;
+      }
+      setPin('');
+      setPinErr('');
+      setShowPin(true);
+      return;
+    }
+
     const email = (authUser.email || '').trim();
     if (!email) {
       Alert.alert('Email required', 'Add an email to your account to pay.');
@@ -176,10 +250,6 @@ export function TVScreen({
     const phone = authUser.phone.replace(/\D/g, '').slice(-11);
     if (phone.length < 10) {
       Alert.alert('Phone required', 'Your account needs a valid phone number for TV subscription.');
-      return;
-    }
-    if (!plan.code?.trim()) {
-      Alert.alert('Plan unavailable', 'This plan has no bundle code. Pick another plan or try again later.');
       return;
     }
 
@@ -349,22 +419,62 @@ export function TVScreen({
         })}
         {!verifiedDec ? <Text style={styles.warn}>Verify your decoder number first to select a plan</Text> : null}
 
+        <PayMethodToggle
+          value={payMethod}
+          onChange={setPayMethod}
+          pointsBalance={userPoints}
+          pointsNeeded={plan?.price ?? 0}
+        />
+
         <Pressable
-          disabled={!canPay || paying || showPayModal}
-          onPress={startPaystackCheckout}
-          style={[styles.cta, (!canPay || paying || showPayModal) && styles.ctaDis]}
+          disabled={
+            !canPay ||
+            paying ||
+            showPayModal ||
+            (payMethod === 'points' && !!plan && userPoints < plan.price)
+          }
+          onPress={startCheckout}
+          style={[
+            styles.cta,
+            (!canPay ||
+              paying ||
+              showPayModal ||
+              (payMethod === 'points' && !!plan && userPoints < plan.price)) &&
+              styles.ctaDis,
+          ]}
         >
           {paying ? (
             <ActivityIndicator color={C.ink} />
           ) : (
             <Text style={styles.ctaTxt}>
               {canPay && plan
-                ? `Pay — ${provider} ${plan.name} · ₦${plan.price.toLocaleString()}`
+                ? payMethod === 'points'
+                  ? `Pay ${plan.price.toLocaleString()} pts`
+                  : `Pay — ${provider} ${plan.name} · ₦${plan.price.toLocaleString()}`
                 : 'Verify decoder & select a plan'}
             </Text>
           )}
         </Pressable>
       </ScrollView>
+
+      <PointsPinModal
+        visible={showPin}
+        pointsNeeded={plan?.price ?? 0}
+        label={plan ? `${provider} ${plan.name}` : 'TV'}
+        submitting={paying}
+        error={pinErr}
+        pin={pin}
+        onChangePin={p => {
+          setPin(p);
+          setPinErr('');
+        }}
+        onSubmit={p => void submitPointsPay(p)}
+        onClose={() => {
+          setShowPin(false);
+          setPin('');
+          setPinErr('');
+        }}
+      />
 
       {payCheckout && plan ? (
         <Paystack

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,10 +12,13 @@ import {
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { AuthUser } from '../api/auth';
-import { ApiError } from '../api/client';
+import { ApiError, apiErrorMessage } from '../api/client';
 import { completeAirtimePurchase, initializeAirtimePurchase } from '../api/airtimePurchase';
+import { payWithPoints } from '../api/pointsPay';
+import { PayMethodToggle, type PayMethod } from '../components/PayMethodToggle';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
+import { NumPad } from '../NumPad';
 import { formatPointsEarned, pointsForAmount } from '../points';
 import type { AppScreen, Beneficiary, Tx } from '../types';
 import { Paystack } from './ElectricityPaystackModal';
@@ -73,6 +77,8 @@ export function AirtimeScreen({
   onAddTx,
   onPurchaseComplete,
   authUser,
+  authToken,
+  userPoints = 0,
 }: {
   goTo: (s: AppScreen) => void;
   beneficiaries: Beneficiary[];
@@ -80,6 +86,8 @@ export function AirtimeScreen({
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pointsEarned: number) => void;
   authUser: AuthUser | null;
+  authToken: string | null;
+  userPoints?: number;
 }) {
   const [network, setNetwork] = useState<string>('MTN');
   const [phone, setPhone] = useState('');
@@ -88,6 +96,10 @@ export function AirtimeScreen({
   const [save, setSave] = useState(false);
   const [benName, setBenName] = useState('');
   const [paying, setPaying] = useState(false);
+  const [payMethod, setPayMethod] = useState<PayMethod>('card');
+  const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinErr, setPinErr] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [payCheckout, setPayCheckout] = useState<{
     reference: string;
@@ -107,22 +119,73 @@ export function AirtimeScreen({
     setPayCheckout(null);
   };
 
-  const startPaystackCheckout = () => {
+  const submitPointsPay = async (pinValue: string) => {
+    if (!authUser || !canContinue) return;
+    setPaying(true);
+    setPinErr('');
+    try {
+      const res = await payWithPoints(authToken, {
+        service: 'airtime',
+        amount: finalAmt,
+        pin: pinValue,
+        phone,
+        disco,
+        name: authUser.name,
+        email: authUser.email,
+      });
+      setShowPin(false);
+      setPin('');
+      const st = String(res.data?.status || '').toLowerCase();
+      const delivery = String(res.data?.delivery || '').toLowerCase();
+      if (st === 'success' || delivery === 'delivered') {
+        finishPurchase(0, { status: 'Successful', transactionId: res.data.transaction_id });
+        Alert.alert('Success', 'Airtime delivered — paid with points (no bonus earn).');
+      } else if (st === 'refunded' || delivery === 'points_restored') {
+        finishPurchase(0, { status: 'Refunded', transactionId: res.data.transaction_id });
+        Alert.alert('Points restored', res.message || 'Delivery failed; your points were restored.');
+      } else {
+        finishPurchase(0, { status: 'Pending', transactionId: res.data.transaction_id });
+        Alert.alert(
+          'Payment successful',
+          'Points reserved. Airtime delivery is in progress — check History to retry if needed.',
+        );
+      }
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Points payment failed'));
+      setPin('');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const startCheckout = () => {
     if (!canContinue) return;
     if (!authUser) {
       Alert.alert('Sign in required', 'Please sign in to buy airtime.');
       return;
     }
-    const email = (authUser.email || '').trim();
-    if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay.');
-      return;
-    }
     if (!phoneLooksLikeNetwork(phone, network)) {
       Alert.alert(
         'Check network',
-        `This number does not look like a ${network} line. Pick the correct network before paying — you will not be charged until checkout succeeds.`,
+        `This number does not look like a ${network} line. Pick the correct network before paying.`,
       );
+      return;
+    }
+
+    if (payMethod === 'points') {
+      if (userPoints < finalAmt) {
+        Alert.alert('Not enough points', `You need ${finalAmt.toLocaleString()} pts.`);
+        return;
+      }
+      setPin('');
+      setPinErr('');
+      setShowPin(true);
+      return;
+    }
+
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
 
@@ -315,20 +378,120 @@ export function AirtimeScreen({
           ) : null}
         </View>
 
+        <PayMethodToggle
+          value={payMethod}
+          onChange={setPayMethod}
+          pointsBalance={userPoints}
+          pointsNeeded={finalAmt}
+        />
+
         <Pressable
-          disabled={!canContinue || paying || showPayModal}
-          onPress={startPaystackCheckout}
-          style={[styles.cta, (!canContinue || paying || showPayModal) && styles.ctaDisabled]}
+          disabled={
+            !canContinue ||
+            paying ||
+            showPayModal ||
+            (payMethod === 'points' && userPoints < finalAmt)
+          }
+          onPress={startCheckout}
+          style={[
+            styles.cta,
+            (!canContinue ||
+              paying ||
+              showPayModal ||
+              (payMethod === 'points' && userPoints < finalAmt)) &&
+              styles.ctaDisabled,
+          ]}
         >
           {paying ? (
             <ActivityIndicator color={C.ink} />
           ) : (
             <Text style={styles.ctaTxt}>
-              {canContinue ? `Pay — ₦${finalAmt.toLocaleString()}` : 'Enter phone and amount'}
+              {!canContinue
+                ? 'Enter phone and amount'
+                : payMethod === 'points'
+                  ? `Pay ${finalAmt.toLocaleString()} pts`
+                  : `Pay — ₦${finalAmt.toLocaleString()}`}
             </Text>
           )}
         </Pressable>
       </ScrollView>
+
+      <Modal
+        visible={showPin}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!paying) {
+            setShowPin(false);
+            setPin('');
+            setPinErr('');
+          }
+        }}
+      >
+        <Pressable
+          style={styles.pinOverlay}
+          onPress={() => {
+            if (!paying) {
+              setShowPin(false);
+              setPin('');
+              setPinErr('');
+            }
+          }}
+        >
+          <Pressable style={styles.pinSheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.grabber} />
+            <Text style={styles.pinTitle}>Confirm with PIN</Text>
+            <Text style={styles.pinSub}>
+              Pay <Text style={{ color: C.olive, fontWeight: '700' }}>{finalAmt.toLocaleString()} pts</Text> for
+              airtime
+            </Text>
+            <View style={styles.dots}>
+              {[0, 1, 2, 3].map(i => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    { backgroundColor: pin.length > i ? (pinErr ? C.error : C.primary) : C.border },
+                  ]}
+                />
+              ))}
+            </View>
+            {paying ? <ActivityIndicator color={C.primary} style={{ marginBottom: 8 }} /> : null}
+            {pinErr ? (
+              <View style={styles.errBox}>
+                <Text style={styles.errTxt}>{pinErr}</Text>
+              </View>
+            ) : null}
+            <NumPad
+              onDigit={d => {
+                if (paying || pin.length >= 4) return;
+                const next = pin + d;
+                setPin(next);
+                setPinErr('');
+                if (next.length === 4) void submitPointsPay(next);
+              }}
+              onDelete={() => {
+                if (!paying) {
+                  setPin(p => p.slice(0, -1));
+                  setPinErr('');
+                }
+              }}
+            />
+            <Pressable
+              onPress={() => {
+                if (!paying) {
+                  setShowPin(false);
+                  setPin('');
+                  setPinErr('');
+                }
+              }}
+              style={styles.cancelBtn}
+            >
+              <Text style={styles.cancelTxt}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {payCheckout ? (
         <Paystack
@@ -494,4 +657,38 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaTxt: { fontSize: 15, fontWeight: '800', color: C.ink },
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  pinSheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    paddingTop: 10,
+  },
+  grabber: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.border,
+    marginBottom: 14,
+  },
+  pinTitle: { fontSize: 18, fontWeight: '700', color: C.ink, textAlign: 'center' },
+  pinSub: { fontSize: 13, color: grey, textAlign: 'center', marginTop: 6, marginBottom: 16 },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 12 },
+  dot: { width: 12, height: 12, borderRadius: 6 },
+  errBox: {
+    backgroundColor: C.errorBg,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  errTxt: { fontSize: 13, color: C.error, textAlign: 'center' },
+  cancelBtn: { alignItems: 'center', paddingVertical: 12 },
+  cancelTxt: { fontSize: 14, fontWeight: '500', color: grey },
 });

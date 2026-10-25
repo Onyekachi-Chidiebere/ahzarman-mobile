@@ -26,12 +26,17 @@ export function parsePtsFromTx(pts?: string): number {
   return Math.abs(n);
 }
 
-/** Balance = sum of pts from successful transactions only. */
+/**
+ * Balance from mapped txs.
+ * Includes Pending holds (negative pts for points-funded deliveries in progress).
+ */
 export function computeBalanceFromTransactions(transactions: Tx[]): number {
   let balance = 0;
   for (const tx of transactions) {
-    if (tx.status !== 'Successful') continue;
-    balance += parsePtsFromTx(tx.pts);
+    if (tx.status === 'Refunded' || tx.status === 'Failed') continue;
+    if (tx.status === 'Successful' || tx.status === 'Pending') {
+      balance += parsePtsFromTx(tx.pts);
+    }
   }
   return Math.max(0, balance);
 }

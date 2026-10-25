@@ -27,6 +27,7 @@ export function getPlaceholderTitle(screen: AppScreen): string {
     success_simple: 'Success',
     share_points: 'Share Points',
     redeem_points: 'Redeem Points',
+    buy_points: 'Buy Points',
     refer: 'Refer & Earn',
     contact_us: 'Contact Us',
     payment_settings: 'Payment Settings',

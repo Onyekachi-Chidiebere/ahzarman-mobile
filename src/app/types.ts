@@ -21,6 +21,7 @@ export type AppScreen =
   | 'success_simple'
   | 'share_points'
   | 'redeem_points'
+  | 'buy_points'
   | 'refer'
   | 'contact_us'
   | 'payment_settings'

@@ -43,7 +43,14 @@ function mapStatus(status: string): Tx['status'] {
 
 function mapType(transactionType: string): Tx['type'] {
   const t = String(transactionType || '').toLowerCase();
-  if (t === 'points_redeem' || t === 'points_share' || t === 'points_received') return 'points';
+  if (
+    t === 'points_redeem' ||
+    t === 'points_share' ||
+    t === 'points_received' ||
+    t === 'points_purchase'
+  ) {
+    return 'points';
+  }
   if (t === 'gift_card' || t === 'gift_card_sale') return 'giftcard';
   if (t === 'betting_funding' || t === 'betting') return 'betting';
   const allowed: Tx['type'][] = [
@@ -93,6 +100,10 @@ function buildTitle(row: ServerTransaction): string {
   const type = String(row.transaction_type || '').toLowerCase();
 
   switch (type) {
+    case 'points_purchase': {
+      const credited = Number(td.points_credited || row.amount);
+      return Number.isFinite(credited) ? `Bought ${Math.round(credited).toLocaleString()} pts` : 'Bought points';
+    }
     case 'airtime': {
       const disco = pickString(td, ['disco', 'network']);
       return disco ? `Airtime — ${disco}` : 'Airtime';
@@ -143,34 +154,41 @@ export function mapServerTransactionToTx(row: ServerTransaction): Tx {
     ? row.transaction_data
     : {}) as Record<string, unknown>;
   const txType = String(row.transaction_type || '').toLowerCase();
+  const payMethod = String(td.payment_method || '').toLowerCase();
+  const rawStatus = String(row.status || '').toLowerCase();
 
   let pts: string | undefined;
-  if (status === 'Successful') {
-    if (txType === 'points_redeem') {
-      const spent = Number(td.points_spent);
-      if (row.meter_token && Number.isFinite(spent) && spent > 0) {
-        pts = `-${Math.round(spent)} pts`;
-      }
-    } else if (txType === 'points_share') {
-      const spent = Number(td.points_spent);
-      if (Number.isFinite(spent) && spent > 0) {
-        pts = `-${Math.round(spent)} pts`;
-      }
-    } else if (txType === 'points_received') {
-      const received = Number(td.points_received);
-      if (Number.isFinite(received) && received > 0) {
-        pts = `+${Math.round(received)} pts`;
-      }
-    } else if (Number.isFinite(amountNum) && amountNum > 0) {
-      pts = formatPointsEarned(pointsForAmount(amountNum));
+
+  if (txType === 'points_purchase' && status === 'Successful') {
+    const credited = Number(td.points_credited || amountNum);
+    if (Number.isFinite(credited) && credited > 0) {
+      pts = `+${Math.round(credited)} pts`;
     }
+  } else if (txType === 'points_share' && status === 'Successful') {
+    const spent = Number(td.points_spent);
+    if (Number.isFinite(spent) && spent > 0) pts = `-${Math.round(spent)} pts`;
+  } else if (txType === 'points_received' && status === 'Successful') {
+    const received = Number(td.points_received);
+    if (Number.isFinite(received) && received > 0) pts = `+${Math.round(received)} pts`;
+  } else if (
+    (payMethod === 'points' || txType === 'points_redeem') &&
+    ['processing', 'paid', 'success', 'refund_pending'].includes(rawStatus)
+  ) {
+    // Hold / spend — no loyalty earn. Refunded restores (no pts line).
+    const spent = Number(td.points_spent || amountNum);
+    if (Number.isFinite(spent) && spent > 0) pts = `-${Math.round(spent)} pts`;
+  } else if (status === 'Successful' && payMethod !== 'points' && Number.isFinite(amountNum) && amountNum > 0) {
+    pts = formatPointsEarned(pointsForAmount(amountNum));
   }
 
   return {
     id: String(row.id),
     type: mapType(row.transaction_type),
     title: buildTitle(row),
-    amount: formatAmountNgn(row.amount),
+    amount:
+      txType === 'points_purchase'
+        ? `₦${Math.round(amountNum).toLocaleString()}`
+        : formatAmountNgn(row.amount),
     date: formatTxDate(row.date_completed || row.date_created),
     pts,
     status,

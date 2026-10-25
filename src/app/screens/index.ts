@@ -1,6 +1,7 @@
 export { HomeScreen } from './HomeScreen';
 export { ServicesScreen } from './ServicesScreen';
 export { RewardsScreen } from './RewardsScreen';
+export { BuyPointsScreen } from './BuyPointsScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { OnboardingScreen } from './OnboardingScreen';
 export { SignUpScreen } from './SignUpScreen';

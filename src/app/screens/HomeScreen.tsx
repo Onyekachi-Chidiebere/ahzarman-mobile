@@ -81,14 +81,23 @@ export function HomeScreen({
         </View>
 
         <View style={styles.pointsCard}>
-          <Text style={styles.pointsLabel}>AHZARMAN POINTS</Text>
+          <View style={styles.pointsTopRow}>
+            <Text style={styles.pointsLabel}>AHZARMAN POINTS</Text>
+            <Pressable onPress={() => goTo('buy_points')} style={styles.buyPointsChip}>
+              <Text style={styles.buyPointsChipTxt}>Buy Points</Text>
+            </Pressable>
+          </View>
           <Text style={styles.pointsBig}>{userPoints.toLocaleString()} pts</Text>
           <Text style={styles.pointsSub}>
-            = ₦{userPoints.toLocaleString()} electricity credit · shareable
+            = ₦{userPoints.toLocaleString()} · use on all services · 1 pt = ₦1
           </Text>
           <View style={styles.pointsActions}>
-            <Pressable onPress={() => goTo('share_points')} style={styles.pointsPrimaryBtn}><Text style={styles.pointsPrimaryBtnTxt}>Share Points</Text></Pressable>
-            <Pressable onPress={() => goTo('redeem_points')} style={styles.pointsGhostBtn}><Text style={styles.pointsGhostBtnTxt}>Redeem</Text></Pressable>
+            <Pressable onPress={() => goTo('redeem_points')} style={styles.pointsPrimaryBtn}>
+              <Text style={styles.pointsPrimaryBtnTxt}>Redeem Points</Text>
+            </Pressable>
+            <Pressable onPress={() => goTo('share_points')} style={styles.pointsGhostBtn}>
+              <Text style={styles.pointsGhostBtnTxt}>Share Points</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -214,7 +223,23 @@ const styles = StyleSheet.create({
   },
   notifBadgeTxt: { fontSize: 9, fontWeight: '700', color: C.white },
   pointsCard: { backgroundColor: C.ink, borderRadius: 16, padding: 18, marginBottom: 14 },
-  pointsLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: '500', marginBottom: 3 },
+  pointsTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+    gap: 10,
+  },
+  pointsLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: '500', flex: 1 },
+  buyPointsChip: {
+    paddingHorizontal: 12,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyPointsChipTxt: { color: C.ink, fontSize: 11, fontWeight: '700' },
   pointsBig: { color: C.white, fontSize: 36, fontWeight: '700', marginBottom: 2 },
   pointsSub: { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginBottom: 14 },
   pointsActions: { flexDirection: 'row', gap: 10 },

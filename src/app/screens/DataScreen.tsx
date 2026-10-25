@@ -11,9 +11,12 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { AuthUser } from '../api/auth';
-import { ApiError } from '../api/client';
+import { ApiError, apiErrorMessage } from '../api/client';
 import { completeDataPurchase, initializeDataPurchase } from '../api/dataPurchase';
 import { getDataTariffPriceList, parseTariffResponseToCatalog } from '../api/dataTariffs';
+import { payWithPoints } from '../api/pointsPay';
+import { PayMethodToggle, type PayMethod } from '../components/PayMethodToggle';
+import { PointsPinModal } from '../components/PointsPinModal';
 import { ScreenHeader } from '../components';
 import { C } from '../constants';
 import { formatPointsEarned } from '../points';
@@ -70,6 +73,8 @@ export function DataScreen({
   onAddTx,
   onPurchaseComplete,
   authUser,
+  authToken,
+  userPoints = 0,
 }: {
   goTo: (s: AppScreen) => void;
   dataState: DataState;
@@ -77,8 +82,14 @@ export function DataScreen({
   onAddTx: (tx: Tx) => void;
   onPurchaseComplete: (pointsEarned: number) => void;
   authUser: AuthUser | null;
+  authToken: string | null;
+  userPoints?: number;
 }) {
   const [paying, setPaying] = useState(false);
+  const [payMethod, setPayMethod] = useState<PayMethod>('card');
+  const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinErr, setPinErr] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [payCheckout, setPayCheckout] = useState<{
     reference: string;
@@ -156,15 +167,67 @@ export function DataScreen({
     setPayCheckout(null);
   };
 
-  const startPaystackCheckout = () => {
+  const finishData = (
+    status: 'Successful' | 'Pending' | 'Refunded',
+    txId?: number,
+    earnPts?: number,
+  ) => {
+    if (!plan) return;
+    onAddTx({
+      id: String(txId ?? Date.now()),
+      type: 'data',
+      title: `Data — ${network} ${plan.size}`,
+      amount: `-₦${plan.price.toLocaleString()}`,
+      pts: status === 'Successful' && earnPts ? formatPointsEarned(earnPts) : undefined,
+      date: 'Just now',
+      status,
+    });
+    if (status === 'Successful' && earnPts) onPurchaseComplete(earnPts);
+    else goTo('history');
+  };
+
+  const submitPointsPay = async (pinValue: string) => {
+    if (!authUser || !plan || !canContinue) return;
+    setPaying(true);
+    setPinErr('');
+    try {
+      const res = await payWithPoints(authToken, {
+        service: 'data',
+        amount: plan.price,
+        pin: pinValue,
+        phone,
+        disco: provider,
+        tariffClass: plan.tariffClass!,
+        plan_label: plan.size,
+        name: authUser.name,
+        email: authUser.email,
+      });
+      setShowPin(false);
+      setPin('');
+      const st = String(res.data?.status || '').toLowerCase();
+      const delivery = String(res.data?.delivery || '').toLowerCase();
+      if (st === 'success' || delivery === 'delivered') {
+        finishData('Successful', res.data.transaction_id, 0);
+        Alert.alert('Success', 'Data delivered — paid with points.');
+      } else if (st === 'refunded' || delivery === 'points_restored') {
+        finishData('Refunded', res.data.transaction_id);
+        Alert.alert('Points restored', res.message || 'Delivery failed; points restored.');
+      } else {
+        finishData('Pending', res.data.transaction_id);
+        Alert.alert('Payment successful', 'Points reserved. Delivery in progress.');
+      }
+    } catch (e) {
+      setPinErr(apiErrorMessage(e, 'Points payment failed'));
+      setPin('');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const startCheckout = () => {
     if (!plan || !canContinue) return;
     if (!authUser) {
       Alert.alert('Sign in required', 'Please sign in to buy data.');
-      return;
-    }
-    const email = (authUser.email || '').trim();
-    if (!email) {
-      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
     if (!hasTariffCode) {
@@ -172,6 +235,23 @@ export function DataScreen({
         'Live prices required',
         'This plan has no bundle code. Load network prices from the server or pick another plan.',
       );
+      return;
+    }
+
+    if (payMethod === 'points') {
+      if (userPoints < plan.price) {
+        Alert.alert('Not enough points', `You need ${plan.price.toLocaleString()} pts.`);
+        return;
+      }
+      setPin('');
+      setPinErr('');
+      setShowPin(true);
+      return;
+    }
+
+    const email = (authUser.email || '').trim();
+    if (!email) {
+      Alert.alert('Email required', 'Add an email to your account to pay.');
       return;
     }
 
@@ -350,10 +430,29 @@ export function DataScreen({
           );
         })}
 
+        <PayMethodToggle
+          value={payMethod}
+          onChange={setPayMethod}
+          pointsBalance={userPoints}
+          pointsNeeded={plan?.price ?? 0}
+        />
+
         <Pressable
-          disabled={!canContinue || paying || showPayModal}
-          onPress={startPaystackCheckout}
-          style={[styles.cta, (!canContinue || paying || showPayModal) && styles.ctaDisabled]}
+          disabled={
+            !canContinue ||
+            paying ||
+            showPayModal ||
+            (payMethod === 'points' && !!plan && userPoints < plan.price)
+          }
+          onPress={startCheckout}
+          style={[
+            styles.cta,
+            (!canContinue ||
+              paying ||
+              showPayModal ||
+              (payMethod === 'points' && !!plan && userPoints < plan.price)) &&
+              styles.ctaDisabled,
+          ]}
         >
           {paying ? (
             <ActivityIndicator color={C.ink} />
@@ -362,12 +461,33 @@ export function DataScreen({
               {plan && phone.length === 11 && !hasTariffCode
                 ? 'Load live prices to pay (plan code missing)'
                 : canContinue && plan
-                  ? `Buy ${network} ${plan.size} — ₦${plan.price.toLocaleString()}`
+                  ? payMethod === 'points'
+                    ? `Pay ${plan.price.toLocaleString()} pts`
+                    : `Buy ${network} ${plan.size} — ₦${plan.price.toLocaleString()}`
                   : 'Select a plan and enter phone'}
             </Text>
           )}
         </Pressable>
       </ScrollView>
+
+      <PointsPinModal
+        visible={showPin}
+        pointsNeeded={plan?.price ?? 0}
+        label={plan ? `${network} ${plan.size}` : 'data'}
+        submitting={paying}
+        error={pinErr}
+        pin={pin}
+        onChangePin={p => {
+          setPin(p);
+          setPinErr('');
+        }}
+        onSubmit={p => void submitPointsPay(p)}
+        onClose={() => {
+          setShowPin(false);
+          setPin('');
+          setPinErr('');
+        }}
+      />
 
       {payCheckout && plan ? (
         <Paystack

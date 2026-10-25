@@ -19,6 +19,7 @@ import {
   AirtimeScreen,
   BeneficiariesScreen,
   BettingScreen,
+  BuyPointsScreen,
   ContactUsScreen,
   DataScreen,
   ElectricityScreen,
@@ -383,6 +384,7 @@ export function AhzarmanApp() {
           onAddTx={onAddTx}
           authUser={authUser}
           authToken={authToken}
+          userPoints={userPoints}
           onPurchaseSuccess={sum => {
             setElecSuccessSummary(sum);
             goTo('elec_success');
@@ -392,6 +394,15 @@ export function AhzarmanApp() {
       {screen === 'elec_success' ? (
         <ElecSuccessScreen goTo={goTo} summary={elecSuccessSummary} />
       ) : null}
+      {screen === 'buy_points' ? (
+        <BuyPointsScreen
+          goTo={goTo}
+          authUser={authUser}
+          userPoints={userPoints}
+          onAddTx={onAddTx}
+          onPurchaseComplete={finishPurchase}
+        />
+      ) : null}
       {screen === 'airtime' ? (
         <AirtimeScreen
           goTo={goTo}
@@ -400,6 +411,8 @@ export function AhzarmanApp() {
           onAddTx={onAddTx}
           onPurchaseComplete={finishPurchase}
           authUser={authUser}
+          authToken={authToken}
+          userPoints={userPoints}
         />
       ) : null}
       {screen === 'data' ? (
@@ -410,6 +423,8 @@ export function AhzarmanApp() {
           onAddTx={onAddTx}
           onPurchaseComplete={finishPurchase}
           authUser={authUser}
+          authToken={authToken}
+          userPoints={userPoints}
         />
       ) : null}
       {screen === 'tv' ? (
@@ -418,6 +433,8 @@ export function AhzarmanApp() {
           onAddTx={onAddTx}
           onPurchaseComplete={finishPurchase}
           authUser={authUser}
+          authToken={authToken}
+          userPoints={userPoints}
         />
       ) : null}
       {screen === 'giftcards' ? (
@@ -469,6 +486,7 @@ export function AhzarmanApp() {
         'history',
         'share_points',
         'redeem_points',
+        'buy_points',
         'refer',
         'electricity',
         'elec_success',
