@@ -136,6 +136,7 @@ All items from the table at the top.
 | Missing `IOS_TEAM_ID` | Add Team ID under **Variables** or **Secrets** (both work) |
 | Missing `GOOGLE_SERVICE_INFO_PLIST` | Add Firebase plist contents as secret |
 | API authentication failed (401) | Issuer ID, Key ID, and `.p8` must be from the **same** API key |
+| Credentials valid but upload: Cannot determine the Apple ID from Bundle ID (19) | API key can’t see `com.ahzarman`, or Xcode 26 `altool` bug. Workflow now requires `com.ahzarman` in `--list-apps` and uploads via **iTMSTransporter**. Fix key team/role if the hard check fails. |
 | Code Sign error / No profile | Distribution cert expired, wrong profile type, or profile not for `com.ahzarman` |
 | Missing iPad icon `152x152` / `167x167` (90023) | Add iPad entries to `AppIcon.appiconset` (included in repo), or set `TARGETED_DEVICE_FAMILY = 1` for iPhone-only |
 | `conflicting provisioning settings` / `automatically signed, but provisioning profile` | Release uses **Manual** signing in `project.pbxproj`; only pass simple `CODE_SIGN_*` flags in the workflow (no `[sdk=iphoneos*]` overrides) |

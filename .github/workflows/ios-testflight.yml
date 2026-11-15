@@ -279,7 +279,17 @@ jobs:
           fi
 
           echo "App Store Connect API credentials are valid."
-          grep -E "com\.ahzarman|Ahzarman|Bundle ID" /tmp/asc-api-test.log || true
+          echo "::group::Apps visible to this API key"
+          cat /tmp/asc-api-test.log
+          echo "::endgroup::"
+
+          if ! grep -q "com\.ahzarman" /tmp/asc-api-test.log; then
+            echo "::error::API key authenticates but does not see bundle ID com.ahzarman."
+            echo "Fix: App Store Connect → Users and Access → Integrations → use a key from the same team that owns Ahzarman,"
+            echo "with Admin or App Manager role. Or confirm the ASC app still uses bundle ID com.ahzarman."
+            exit 1
+          fi
+          echo "Confirmed API key can see com.ahzarman."
 
           echo "APPSTORE_ISSUER_ID_CLEAN=$ISSUER_ID" >> "$GITHUB_ENV"
           echo "APPSTORE_API_KEY_ID_CLEAN=$KEY_ID" >> "$GITHUB_ENV"
@@ -288,16 +298,24 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          echo "Uploading $IPA_PATH to TestFlight (altool)..."
-          if ! xcrun altool --upload-app \
-            -f "$IPA_PATH" \
-            -t ios \
-            --apiKey "$APPSTORE_API_KEY_ID_CLEAN" \
-            --apiIssuer "$APPSTORE_ISSUER_ID_CLEAN" \
-            --output-format xml 2>&1 | tee /tmp/altool-upload.log; then
+          # altool --upload-app is flaky on newer Xcode (26.x) with error 19
+          # "Cannot determine the Apple ID from Bundle ID". Prefer iTMSTransporter.
+          echo "Uploading $IPA_PATH to TestFlight (iTMSTransporter)..."
+          if ! xcrun iTMSTransporter -m upload \
+            -assetFile "$IPA_PATH" \
+            -apiKey "$APPSTORE_API_KEY_ID_CLEAN" \
+            -apiIssuer "$APPSTORE_ISSUER_ID_CLEAN" \
+            -v informational 2>&1 | tee /tmp/transporter-upload.log; then
             echo "::group::Upload errors"
-            grep -E "error|Error|failed|FAILED" /tmp/altool-upload.log || tail -n 50 /tmp/altool-upload.log
+            grep -E "error|Error|ERROR|failed|FAILED|Exception" /tmp/transporter-upload.log || tail -n 80 /tmp/transporter-upload.log
             echo "::endgroup::"
+            echo "::error::iTMSTransporter upload failed. Falling back to altool for diagnostics..."
+            xcrun altool --upload-app \
+              -f "$IPA_PATH" \
+              -t ios \
+              --apiKey "$APPSTORE_API_KEY_ID_CLEAN" \
+              --apiIssuer "$APPSTORE_ISSUER_ID_CLEAN" \
+              --output-format xml 2>&1 | tee /tmp/altool-upload.log || true
             exit 1
           fi
           echo "Upload submitted. Check App Store Connect → Ahzarman → TestFlight in 10–30 minutes."
