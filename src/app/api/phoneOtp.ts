@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import auth, { type FirebaseAuthTypes } from '@react-native-firebase/auth';
+import auth from '@react-native-firebase/auth';
 import { sendOtp, verifyFirebaseOtp } from './auth';
 import { ApiError } from './client';
 import { toE164Ng } from './phone';
@@ -16,8 +16,14 @@ type OtpSession = {
   createdAt: number;
 };
 
-let pendingConfirmation: FirebaseAuthTypes.ConfirmationResult | null = null;
 let sendInFlight = false;
+
+function phonesMatch(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const na = toE164Ng(a) || a.replace(/\D/g, '');
+  const nb = toE164Ng(b) || b.replace(/\D/g, '');
+  return na === nb;
+}
 
 function otpCodeFromError(e: unknown): string | null {
   const err = e as { code?: string; nativeErrorCode?: string | null };
@@ -29,7 +35,7 @@ function friendlyFirebaseOtpMessage(e: unknown): string | null {
   const code = otpCodeFromError(e);
   switch (code) {
     case 'auth/invalid-verification-code':
-      return 'That code is incorrect or no longer valid. Enter the latest SMS only — Resend invalidates older codes.';
+      return 'That code is incorrect. Enter the 6-digit code from the SMS we just sent.';
     case 'auth/code-expired':
     case 'auth/session-expired':
       return 'This code has expired. Tap Resend to get a new one.';
@@ -127,7 +133,6 @@ async function loadOtpSession(): Promise<OtpSession | null> {
 }
 
 async function clearOtpSession(): Promise<void> {
-  pendingConfirmation = null;
   try {
     await AsyncStorage.removeItem(OTP_SESSION_KEY);
   } catch {
@@ -139,7 +144,15 @@ export function clearPhoneVerification() {
   void clearOtpSession();
 }
 
-/** Ask server + trigger Firebase SMS. */
+/**
+ * Manual ownership proof only:
+ * 1) Firebase sends SMS
+ * 2) User types the 6-digit code
+ * 3) We create a credential from that typed code
+ *
+ * We intentionally do NOT auto-sign-in when Android retrieves the SMS —
+ * that would skip the “type the code back” ownership check.
+ */
 export async function startPhoneVerification(
   phone: string,
   purpose: 'register' | 'reset_pin',
@@ -165,19 +178,64 @@ export async function startPhoneVerification(
       throw new ApiError(`Invalid phone number: "${phone}"`, 400);
     }
 
-    // forceResend=true when user taps Resend so Firebase issues a fresh SMS/session
-    pendingConfirmation = await auth().signInWithPhoneNumber(e164, !!opts?.forceResend);
-    const verificationId = pendingConfirmation.verificationId;
-    if (!verificationId) {
-      throw new ApiError('Could not start phone verification. Try again.', 500);
+    try {
+      if (auth().currentUser) await auth().signOut();
+    } catch {
+      /* ignore */
     }
 
-    await saveOtpSession({
-      verificationId,
-      phone,
-      purpose,
-      e164,
-      createdAt: Date.now(),
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finishOk = async (verificationId: string) => {
+        if (settled || !verificationId) return;
+        settled = true;
+        await saveOtpSession({
+          verificationId,
+          phone,
+          purpose,
+          e164,
+          createdAt: Date.now(),
+        });
+        resolve();
+      };
+      const finishErr = (e: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(e);
+      };
+
+      // forceResend → boolean second arg (RN Firebase overload)
+      const listener = opts?.forceResend
+        ? auth().verifyPhoneNumber(e164, true)
+        : auth().verifyPhoneNumber(e164);
+
+      listener.on(
+        'state_changed',
+        snapshot => {
+          const state = snapshot.state;
+          const verificationId = snapshot.verificationId;
+
+          // CODE_SENT — SMS left Firebase; show OTP UI. Do not auto-sign-in.
+          if (state === auth.PhoneAuthState.CODE_SENT || state === 'sent') {
+            void finishOk(verificationId).catch(finishErr);
+            return;
+          }
+
+          // AUTO_VERIFIED — Android may have read the SMS; we still only store
+          // verificationId and wait for the user to type the code themselves.
+          if (state === auth.PhoneAuthState.AUTO_VERIFIED || state === 'verified') {
+            if (verificationId) {
+              void finishOk(verificationId).catch(finishErr);
+            }
+            return;
+          }
+
+          if (state === auth.PhoneAuthState.ERROR || state === 'error') {
+            finishErr(snapshot.error || new Error('Phone verification failed'));
+          }
+        },
+        (error: unknown) => finishErr(error),
+      );
     });
   } catch (e) {
     throw toOtpApiError(e, 'Could not send verification code');
@@ -186,49 +244,45 @@ export async function startPhoneVerification(
   }
 }
 
-async function signInWithSmsCode(code: string): Promise<void> {
-  const digits = digitsOnlyOtp(code);
-  if (digits.length !== 6) {
-    throw new ApiError('Enter the 6-digit code from your SMS.', 400);
-  }
-
-  if (pendingConfirmation) {
-    await pendingConfirmation.confirm(digits);
-    return;
-  }
-
-  // App was killed/backgrounded after SMS (common on Samsung) — recover session
-  const session = await loadOtpSession();
-  if (!session?.verificationId) {
-    throw new ApiError('No verification in progress. Request a new code.', 400);
-  }
-
-  const credential = auth.PhoneAuthProvider.credential(session.verificationId, digits);
-  await auth().signInWithCredential(credential);
-}
-
-/** Confirm 6-digit SMS code via Firebase. */
+/** Confirm the 6-digit code the user typed (ownership proof). */
 export async function completePhoneVerification(
   phone: string,
   code: string,
   purpose: 'register' | 'reset_pin',
 ): Promise<void> {
   try {
+    const e164 = toE164Ng(phone);
+    if (!e164) {
+      throw new ApiError(`Invalid phone number: "${phone}"`, 400);
+    }
+
+    const digits = digitsOnlyOtp(code);
+    if (digits.length !== 6) {
+      throw new ApiError('Enter the 6-digit code from your SMS.', 400);
+    }
+
     const session = await loadOtpSession();
-    if (session && (session.phone !== phone || session.purpose !== purpose)) {
-      // Phone changed mid-flow — do not accept an old SMS session
+    if (!session?.verificationId) {
+      throw new ApiError('No verification in progress. Request a new code.', 400);
+    }
+    if (session.phone !== phone || session.purpose !== purpose) {
       await clearOtpSession();
       throw new ApiError('Phone number changed. Request a new code.', 400);
     }
 
-    await signInWithSmsCode(code);
+    const credential = auth.PhoneAuthProvider.credential(session.verificationId, digits);
+    await auth().signInWithCredential(credential);
+
     const user = auth().currentUser;
-    const idToken = await user?.getIdToken(true);
-    if (!idToken) {
+    if (!phonesMatch(user?.phoneNumber, e164)) {
       throw new ApiError(
         `Phone verification failed\nuid=${user?.uid ?? 'null'}\nphone=${user?.phoneNumber ?? 'null'}`,
         400,
       );
+    }
+    const idToken = await user.getIdToken(true);
+    if (!idToken) {
+      throw new ApiError('Could not get verification token. Try again.', 400);
     }
     try {
       await verifyFirebaseOtp(idToken, phone, purpose);
