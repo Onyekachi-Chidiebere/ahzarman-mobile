@@ -278,15 +278,24 @@ jobs:
             exit 1
           fi
 
-          echo "App Store Connect API credentials are valid."
           echo "::group::Apps visible to this API key"
           cat /tmp/asc-api-test.log
           echo "::endgroup::"
 
+          if grep -qi "No applications found" /tmp/asc-api-test.log; then
+            echo "::error::ASC API key signed in but lists ZERO apps (No applications found)."
+            echo "This is a permissions/team problem, not a missing IPA."
+            echo "App Store Connect → Users and Access → Integrations → Keys:"
+            echo "  1) Confirm Key ID matches GitHub secret APPSTORE_API_KEY_ID"
+            echo "  2) Key Access must be Admin or App Manager (not Developer / Marketing / Sales)"
+            echo "  3) Key must belong to the SAME Apple team that owns the Ahzarman app"
+            echo "  4) If unsure: revoke, create a new Admin key, update Issuer ID + Key ID + .p8 secrets together"
+            exit 1
+          fi
+
           if ! grep -q "com\.ahzarman" /tmp/asc-api-test.log; then
-            echo "::error::API key authenticates but does not see bundle ID com.ahzarman."
-            echo "Fix: App Store Connect → Users and Access → Integrations → use a key from the same team that owns Ahzarman,"
-            echo "with Admin or App Manager role. Or confirm the ASC app still uses bundle ID com.ahzarman."
+            echo "::error::API key lists apps but not bundle ID com.ahzarman."
+            echo "Confirm ASC app bundle ID is com.ahzarman under the same team as this API key."
             exit 1
           fi
           echo "Confirmed API key can see com.ahzarman."

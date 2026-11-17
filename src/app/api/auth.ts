@@ -3,12 +3,14 @@ import { apiRequest } from './client';
 
 export const AUTH_TOKEN_KEY = 'auth_token';
 export const POINTS_BALANCE_KEY = 'points_balance';
+const PHONE_PROOF_KEY = '@ahzarman/phone_proof';
 
 /** Clears persisted auth (client-side JWT logout). */
 export async function clearAuthSession() {
   await Promise.all([
     AsyncStorage.removeItem(AUTH_TOKEN_KEY),
     AsyncStorage.removeItem(POINTS_BALANCE_KEY),
+    AsyncStorage.removeItem(PHONE_PROOF_KEY),
   ]);
 }
 
@@ -28,11 +30,31 @@ export type AuthPayload = { user: AuthUser; token: string };
 
 export type OnboardingSlide = { title: string; sub: string; art?: number };
 
-type Msg = { success: boolean; message?: string };
+type Msg = { success: boolean; message?: string; verification_token?: string };
 type OtpSend = Msg & { delivery?: 'firebase' };
 type AuthResponse = { success: boolean; message?: string; data: AuthPayload };
 type MeResponse = { success: boolean; data: AuthUser };
 type OnboardingResponse = { success: boolean; data: { slides: OnboardingSlide[] } };
+
+export async function savePhoneProof(token: string | null | undefined) {
+  if (!token) {
+    await AsyncStorage.removeItem(PHONE_PROOF_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(PHONE_PROOF_KEY, token);
+}
+
+export async function loadPhoneProof(): Promise<string | null> {
+  try {
+    return (await AsyncStorage.getItem(PHONE_PROOF_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPhoneProof() {
+  await AsyncStorage.removeItem(PHONE_PROOF_KEY);
+}
 
 export async function getOnboardingSlides(): Promise<OnboardingSlide[]> {
   const r = await apiRequest<OnboardingResponse>('/auth/onboarding', { method: 'GET' });
@@ -51,17 +73,22 @@ export async function verifyFirebaseOtp(
   phone: string,
   purpose: 'register' | 'reset_pin' = 'register',
 ) {
-  return apiRequest<Msg>('/auth/otp/verify-firebase', {
+  const r = await apiRequest<Msg>('/auth/otp/verify-firebase', {
     method: 'POST',
     body: JSON.stringify({ id_token: idToken, phone, purpose }),
   });
+  await savePhoneProof(r.verification_token);
+  return r;
 }
 
 export async function registerAccount(name: string, phone: string, pin: string) {
-  return apiRequest<AuthResponse>('/auth/register', {
+  const verification_token = await loadPhoneProof();
+  const r = await apiRequest<AuthResponse>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ name, phone, pin }),
+    body: JSON.stringify({ name, phone, pin, verification_token }),
   });
+  await clearPhoneProof();
+  return r;
 }
 
 export async function login(phone: string, pin: string) {
@@ -72,10 +99,13 @@ export async function login(phone: string, pin: string) {
 }
 
 export async function resetPin(phone: string, new_pin: string) {
-  return apiRequest<AuthResponse>('/auth/pin/reset', {
+  const verification_token = await loadPhoneProof();
+  const r = await apiRequest<AuthResponse>('/auth/pin/reset', {
     method: 'POST',
-    body: JSON.stringify({ phone, new_pin }),
+    body: JSON.stringify({ phone, new_pin, verification_token }),
   });
+  await clearPhoneProof();
+  return r;
 }
 
 export async function fetchMe(token: string) {
